@@ -21,6 +21,8 @@ const ChatController = (function() {
     let autoReadInProgress = false;
     let toolCallHistory = [];
     let highlightedResultIndices = new Set();
+    // Add a cache for read_url results
+    const readCache = new Map();
 
     // Add helper to robustly extract JSON tool calls (handles markdown fences)
     function extractToolCall(text) {
@@ -704,26 +706,37 @@ Answer: [your final, concise answer based on the reasoning above]`;
     }
 
     // Helper: AI-driven deep reading for a URL
-    async function deepReadUrl(url, maxChunks = 5, chunkSize = 2000) {
+    async function deepReadUrl(url, maxChunks = 5, chunkSize = 2000, maxTotalLength = 10000) {
         let allChunks = [];
         let start = 0;
         let shouldContinue = true;
         let chunkCount = 0;
-        while (shouldContinue && chunkCount < maxChunks) {
-            // Read chunk
-            await processToolCall({ tool: 'read_url', arguments: { url, start, length: chunkSize }, skipContinue: true });
-            // Find the last snippet added to chatHistory
-            const lastEntry = chatHistory[chatHistory.length - 1];
-            let snippet = '';
-            if (lastEntry && typeof lastEntry.content === 'string' && lastEntry.content.startsWith('Read content from')) {
-                snippet = lastEntry.content.split('\n').slice(1).join('\n');
-                allChunks.push(snippet);
+        let totalLength = 0;
+        while (shouldContinue && chunkCount < maxChunks && totalLength < maxTotalLength) {
+            // Check cache first
+            const cacheKey = `${url}:${start}:${chunkSize}`;
+            let snippet;
+            if (readCache.has(cacheKey)) {
+                snippet = readCache.get(cacheKey);
+            } else {
+                await processToolCall({ tool: 'read_url', arguments: { url, start, length: chunkSize }, skipContinue: true });
+                // Find the last snippet added to chatHistory
+                const lastEntry = chatHistory[chatHistory.length - 1];
+                if (lastEntry && typeof lastEntry.content === 'string' && lastEntry.content.startsWith('Read content from')) {
+                    snippet = lastEntry.content.split('\n').slice(1).join('\n');
+                    readCache.set(cacheKey, snippet);
+                } else {
+                    snippet = '';
+                }
             }
+            if (!snippet) break;
+            allChunks.push(snippet);
+            totalLength += snippet.length;
             // Ask AI if more is needed
             const selectedModel = SettingsController.getSettings().selectedModel;
             let aiReply = '';
             try {
-                const prompt = `Given the following snippet from ${url}, is more content needed from this page to answer the question?\n\nSnippet:\n${snippet}\n\nReply YES or NO.`;
+                const prompt = `Given the following snippet from ${url}, do you need more content to answer the user's question? Please reply with \"YES\" or \"NO\" and a brief reason. If YES, estimate how many more characters you need.\n\nSnippet:\n${snippet}`;
                 if (selectedModel.startsWith('gpt')) {
                     const res = await ApiService.sendOpenAIRequest(selectedModel, [
                         { role: 'system', content: 'You are an assistant that decides if more content is needed from a web page.' },
@@ -736,7 +749,7 @@ Answer: [your final, concise answer based on the reasoning above]`;
                 shouldContinue = false;
                 break;
             }
-            if (aiReply.startsWith('yes')) {
+            if (aiReply.startsWith('yes') && totalLength < maxTotalLength) {
                 start += chunkSize;
                 chunkCount++;
                 shouldContinue = true;
