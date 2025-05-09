@@ -19,6 +19,8 @@ const ChatController = (function() {
     const MAX_TOOL_CALL_REPEAT = 3;
     let lastSearchResults = [];
     let autoReadInProgress = false;
+    let toolCallHistory = [];
+    let highlightedResultIndices = new Set();
 
     // Add helper to robustly extract JSON tool calls (handles markdown fences)
     function extractToolCall(text) {
@@ -58,9 +60,11 @@ Begin Reasoning Now:
                 const streamed = [];
                 results = await ToolsService.webSearch(args.query, (result) => {
                     streamed.push(result);
+                    // Pass highlight flag if this index is in highlightedResultIndices
+                    const idx = streamed.length - 1;
                     UIController.addSearchResult(result, (url) => {
                         processToolCall({ tool: 'read_url', arguments: { url, start: 0, length: 1122 } });
-                    });
+                    }, highlightedResultIndices.has(idx));
                 }, engine);
                 if (!results.length) {
                     UIController.addMessage('ai', `No search results found for "${args.query}".`);
@@ -655,10 +659,11 @@ Answer: [your final, concise answer based on the reasoning above]`;
             UIController.addMessage('ai', `Error: Tool call loop detected. The same tool call has been made more than ${MAX_TOOL_CALL_REPEAT} times in a row. Stopping to prevent infinite loop.`);
             return;
         }
+        // Log tool call
+        toolCallHistory.push({ tool, args, timestamp: new Date().toISOString() });
         await toolHandlers[tool](args);
         // Only continue reasoning if the last AI reply was NOT a tool call
         if (!skipContinue) {
-            // Check if the last chatHistory entry is a tool call
             const lastEntry = chatHistory[chatHistory.length - 1];
             let isToolCall = false;
             if (lastEntry && typeof lastEntry.content === 'string') {
@@ -707,6 +712,8 @@ Answer: [your final, concise answer based on the reasoning above]`;
         if (!match) return;
         const nums = match[1].split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
         if (!nums.length) return;
+        // Store highlighted indices (0-based)
+        highlightedResultIndices = new Set(nums.map(n => n - 1));
         // Map numbers to URLs (1-based index)
         const urlsToRead = nums.map(n => lastSearchResults[n-1]?.url).filter(Boolean);
         if (!urlsToRead.length) return;
@@ -779,6 +786,7 @@ Answer: [your final, concise answer based on the reasoning above]`;
         getChatHistory,
         getTotalTokens,
         clearChat,
-        processToolCall
+        processToolCall,
+        getToolCallHistory: () => [...toolCallHistory],
     };
 })(); 
