@@ -342,10 +342,13 @@ Answer: [your final, concise answer based on the reasoning above]`;
                     UIController.updateMessageContent(aiMsgElement, '🤔 Thinking...');
                 }
                 
-                // Process streaming response
+                // Always inject system tool-call instructions at start of context
+                const systemMsg = chatHistory[0];
+                const recent = chatHistory.slice(1);
+                const messagesForOpenAI = [systemMsg, ...recent];
                 const fullReply = await ApiService.streamOpenAIRequest(
-                    model, 
-                    chatHistory,
+                    model,
+                    messagesForOpenAI,
                     (chunk, fullText) => {
                         streamedResponse = fullText;
                         
@@ -414,7 +417,10 @@ Answer: [your final, concise answer based on the reasoning above]`;
             UIController.showStatus('Waiting for AI response...');
             // Non-streaming approach
             try {
-                const result = await ApiService.sendOpenAIRequest(model, chatHistory);
+                const systemMsgNS = chatHistory[0];
+                const recentNS = chatHistory.slice(1);
+                const messagesForOpenAINS = [systemMsgNS, ...recentNS];
+                const result = await ApiService.sendOpenAIRequest(model, messagesForOpenAINS);
                 
                 if (result.error) {
                     throw new Error(result.error.message);
@@ -481,10 +487,13 @@ Answer: [your final, concise answer based on the reasoning above]`;
                     UIController.updateMessageContent(aiMsgElement, '🤔 Thinking...');
                 }
                 
-                // Process streaming response
+                // Always inject system tool-call instructions at start of context
+                const systemMsgG = chatHistory[0];
+                const recentG = chatHistory.slice(1);
+                const messagesForGemini = [systemMsgG, ...recentG];
                 const fullReply = await ApiService.streamGeminiRequest(
                     model,
-                    chatHistory,
+                    messagesForGemini,
                     (chunk, fullText) => {
                         streamedResponse = fullText;
                         
@@ -551,8 +560,11 @@ Answer: [your final, concise answer based on the reasoning above]`;
         } else {
             // Non-streaming approach
             try {
+                const systemMsgGNS = chatHistory[0];
+                const recentGNS = chatHistory.slice(1);
+                const messagesForGeminiNS = [systemMsgGNS, ...recentGNS];
                 const session = ApiService.createGeminiSession(model);
-                const result = await session.sendMessage(message, chatHistory);
+                const result = await session.sendMessage(message, messagesForGeminiNS);
                 
                 // Update token usage if available
                 if (result.usageMetadata && typeof result.usageMetadata.totalTokenCount === 'number') {
