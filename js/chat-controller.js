@@ -334,8 +334,10 @@ Answer: [your final, concise answer here]
      * @param {string} message - The user message
      */
     async function handleOpenAIMessage(model, userInput) {
-        // Add user message to history and UI
-        chatHistory.push({ role: 'user', content: userInput });
+        // Add user message to history only if non-empty (skip on resume)
+        if (userInput && userInput.trim()) {
+            chatHistory.push({ role: 'user', content: userInput });
+        }
         let fullReply = '';
         const systemMsg = chatHistory[0];
         do {
