@@ -344,7 +344,8 @@ Answer: [your final, concise answer based on the reasoning above]`;
                 
                 // Always inject system tool-call instructions at start of context
                 const systemMsg = chatHistory[0];
-                const recent = chatHistory.slice(1);
+                // Keep only the last 10 messages to maintain context window
+                const recent = chatHistory.slice(-10);
                 const messagesForOpenAI = [systemMsg, ...recent];
                 const fullReply = await ApiService.streamOpenAIRequest(
                     model,
@@ -418,7 +419,8 @@ Answer: [your final, concise answer based on the reasoning above]`;
             // Non-streaming approach
             try {
                 const systemMsgNS = chatHistory[0];
-                const recentNS = chatHistory.slice(1);
+                // Trim to last 10 messages
+                const recentNS = chatHistory.slice(-10);
                 const messagesForOpenAINS = [systemMsgNS, ...recentNS];
                 const result = await ApiService.sendOpenAIRequest(model, messagesForOpenAINS);
                 
@@ -489,7 +491,8 @@ Answer: [your final, concise answer based on the reasoning above]`;
                 
                 // Always inject system tool-call instructions at start of context
                 const systemMsgG = chatHistory[0];
-                const recentG = chatHistory.slice(1);
+                // Trim context for smaller models
+                const recentG = chatHistory.slice(-10);
                 const messagesForGemini = [systemMsgG, ...recentG];
                 const fullReply = await ApiService.streamGeminiRequest(
                     model,
@@ -561,7 +564,8 @@ Answer: [your final, concise answer based on the reasoning above]`;
             // Non-streaming approach
             try {
                 const systemMsgGNS = chatHistory[0];
-                const recentGNS = chatHistory.slice(1);
+                // Trim context
+                const recentGNS = chatHistory.slice(-10);
                 const messagesForGeminiNS = [systemMsgGNS, ...recentGNS];
                 const session = ApiService.createGeminiSession(model);
                 const result = await session.sendMessage(message, messagesForGeminiNS);
