@@ -864,9 +864,11 @@ Answer: [your final, concise answer based on the reasoning above]`;
         // Otherwise, split into batches
         const batches = splitIntoBatches(snippets, MAX_PROMPT_LENGTH);
         let batchSummaries = [];
-        UIController.showSpinner('Summarizing information in batches...');
+        const totalBatches = batches.length;
         try {
-            for (const batch of batches) {
+            for (let i = 0; i < totalBatches; i++) {
+                const batch = batches[i];
+                UIController.showSpinner(`Summarizing batch ${i + 1} of ${totalBatches}...`);
                 const batchPrompt = `Summarize the following information extracted from web pages:\n\n${batch.join('\n---\n')}`;
                 const res = await ApiService.sendOpenAIRequest(selectedModel, [
                     { role: 'system', content: 'You are an assistant that synthesizes information from multiple sources.' },
@@ -877,8 +879,10 @@ Answer: [your final, concise answer based on the reasoning above]`;
             // If the combined summaries are still too long, recursively summarize
             const combined = batchSummaries.join('\n---\n');
             if (combined.length > MAX_PROMPT_LENGTH) {
+                UIController.showSpinner('Combining summaries...');
                 await summarizeSnippets(batchSummaries);
             } else {
+                UIController.showSpinner('Finalizing summary...');
                 UIController.addMessage('ai', `Summary:\n${combined}`);
             }
         } catch (err) {
