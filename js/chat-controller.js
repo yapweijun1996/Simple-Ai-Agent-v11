@@ -838,7 +838,7 @@ Answer: [your final, concise answer based on the reasoning above]`;
         if (!snippets) snippets = readSnippets;
         if (!snippets.length) return;
         const selectedModel = SettingsController.getSettings().selectedModel;
-        const MAX_PROMPT_LENGTH = 3500; // chars, safe for most models
+        const MAX_PROMPT_LENGTH = 5857; // chars, safe for most models
         const SUMMARIZATION_TIMEOUT = 88000; // 88 seconds
         // If only one snippet, just summarize it directly
         if (snippets.length === 1) {
