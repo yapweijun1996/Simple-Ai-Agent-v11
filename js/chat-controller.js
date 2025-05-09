@@ -147,14 +147,13 @@ Begin your interaction.`
     function enhanceWithCoT(message) {
         return `${message}
 
-Please think step-by-step, prefix each step with "Step X:". After completing your reasoning:
-• If you need to call an external tool, output ONLY the JSON object for the tool call in the exact format:
-  {"tool":"<tool_name>","arguments":{...}}
-  and NOTHING ELSE.
-• If no tool call is needed, then output your final answer prefixed with "Answer:".
-Examples:
-Step 1: ...
-Step 2: ...
+Please think step-by-step, prefix each step with "Step X:". As soon as you decide a tool call is needed, stop and output ONLY the JSON object for the call (nothing else), for example:
+
+Step 1: Identify need to search for KLCI constituents.
+{"tool":"web_search","arguments":{"query":"FTSE Bursa Malaysia KLCI index constituents"}}
+
+No further text. The system will run that tool and resume. If no tool call is needed, after your steps output:
+
 Answer: [your final, concise answer here]
 `;
     }
