@@ -640,8 +640,8 @@ Answer: [your final, concise answer here]
         const { tool, arguments: args, skipContinue } = call;
         const callKey = JSON.stringify(call);
         const isDuplicate = executedToolCalls.has(callKey);
-        // Count only first non-duplicate tool call per cycle
-        if (!isDuplicate) {
+        // Count only top-level, non-duplicate tool calls per cycle
+        if (!isDuplicate && !skipContinue) {
             toolCallsThisRound += 1;
         }
 
