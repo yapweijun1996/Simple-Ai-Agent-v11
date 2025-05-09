@@ -396,6 +396,10 @@ Answer: [your final, concise answer based on the reasoning above]`;
                     totalTokens += tokenCount;
                 }
             } catch (err) {
+                if (err.name === 'AbortError') {
+                    UIController.updateMessageContent(aiMsgElement, 'Error: Request timed out. Please try again.');
+                    return;
+                }
                 UIController.updateMessageContent(aiMsgElement, 'Error: ' + err.message);
                 throw err;
             } finally {
@@ -531,6 +535,10 @@ Answer: [your final, concise answer based on the reasoning above]`;
                     totalTokens += tokenCount;
                 }
             } catch (err) {
+                if (err.name === 'AbortError') {
+                    UIController.updateMessageContent(aiMsgElement, 'Error: Request timed out. Please try again.');
+                    return;
+                }
                 UIController.updateMessageContent(aiMsgElement, 'Error: ' + err.message);
                 throw err;
             } finally {
