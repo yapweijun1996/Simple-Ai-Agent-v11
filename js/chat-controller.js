@@ -17,6 +17,8 @@ const ChatController = (function() {
     let executedToolCalls = new Set();
     // Flag to track whether we've resumed after a tool call
     let hasResumed = false;
+    // Re-add counter for backward compatibility (prevent ReferenceError)
+    let toolCallsThisRound = 0;
 
     // Debug logger for ChatController
     function debugLog(...args) {
@@ -636,14 +638,8 @@ Answer: [your final, concise answer here]
      * Executes a tool call, injects result into chat, and continues reasoning
      */
     async function processToolCall(call) {
-        // Extract call properties
-        const { tool, arguments: args, skipContinue } = call;
         const callKey = JSON.stringify(call);
         const isDuplicate = executedToolCalls.has(callKey);
-        // Count only top-level, non-duplicate tool calls per cycle
-        if (!isDuplicate && !skipContinue) {
-            toolCallsThisRound += 1;
-        }
 
         try {
             if (isDuplicate) {
@@ -653,17 +649,17 @@ Answer: [your final, concise answer here]
                 executedToolCalls.add(callKey);
                 let result;
 
-                if (tool === 'web_search') {
-                    UIController.showStatus(`Searching web for "${args.query}"...`);
+                if (call.tool === 'web_search') {
+                    UIController.showStatus(`Searching web for "${call.arguments.query}"...`);
                     try {
-                        const items = await ToolsService.webSearch(args.query);
+                        const items = await ToolsService.webSearch(call.arguments.query);
                         const htmlItems = items.map(r =>
                             `<li><a href="${r.url}" target="_blank" rel="noopener noreferrer">${r.title}</a><br><small>${r.url}</small><p>${Utils.escapeHtml(r.snippet)}</p></li>`
                         ).join('');
-                        const html = `<div class="tool-result" role="group" aria-label="Search results for ${args.query}"><strong>Search results for "${args.query}" (${items.length}):</strong><ul>${htmlItems}</ul></div>`;
+                        const html = `<div class="tool-result" role="group" aria-label="Search results for ${call.arguments.query}"><strong>Search results for "${call.arguments.query}" (${items.length}):</strong><ul>${htmlItems}</ul></div>`;
                         UIController.addHtmlMessage('ai', html);
                         const plainTextResults = items.map((r, i) => `${i+1}. ${r.title} (${r.url}) - ${r.snippet}`).join('\n');
-                        chatHistory.push({ role: 'assistant', content: `Search results for "${args.query}" (${items.length}):\n${plainTextResults}` });
+                        chatHistory.push({ role: 'assistant', content: `Search results for "${call.arguments.query}" (${items.length}):\n${plainTextResults}` });
 
                         // Attempt read_url for each item; skip if it fails
                         for (const item of items) {
@@ -675,32 +671,32 @@ Answer: [your final, concise answer here]
                         }
                     } catch (err) {
                         console.warn('Web search failed:', err);
-                        const fallback = `Unable to retrieve search results for "${args.query}". Proceeding with available knowledge.`;
+                        const fallback = `Unable to retrieve search results for "${call.arguments.query}". Proceeding with available knowledge.`;
                         UIController.addMessage('ai', fallback);
                         chatHistory.push({ role: 'assistant', content: fallback });
                     }
 
-                } else if (tool === 'read_url') {
-                    UIController.showStatus(`Reading content from ${args.url}...`);
+                } else if (call.tool === 'read_url') {
+                    UIController.showStatus(`Reading content from ${call.arguments.url}...`);
                     let pageText;
                     try {
-                        pageText = await ToolsService.readUrl(args.url);
+                        pageText = await ToolsService.readUrl(call.arguments.url);
                     } catch (err) {
-                        debugLog(`read_url failed for ${args.url}, skipping this URL:`, err);
-                        UIController.addMessage('ai', `[read_url] Skipped content from ${args.url} due to an error.`);
+                        debugLog(`read_url failed for ${call.arguments.url}, skipping this URL:`, err);
+                        UIController.addMessage('ai', `[read_url] Skipped content from ${call.arguments.url} due to an error.`);
                         pageText = null;
                     }
                     if (pageText) {
                         const fullText = String(pageText);
                         const totalLength = fullText.length;
-                        const chunkSize = (typeof args.length === 'number' && args.length > 0) ? args.length : 1122;
-                        for (let offset = (typeof args.start === 'number' && args.start >= 0 ? args.start : 0); offset < totalLength; offset += chunkSize) {
+                        const chunkSize = (typeof call.arguments.length === 'number' && call.arguments.length > 0) ? call.arguments.length : 1122;
+                        for (let offset = (typeof call.arguments.start === 'number' && call.arguments.start >= 0 ? call.arguments.start : 0); offset < totalLength; offset += chunkSize) {
                             const snippet = fullText.slice(offset, offset + chunkSize);
                             const hasMore = offset + chunkSize < totalLength;
-                            const html = `<div class="tool-result" role="group" aria-label="Read content from ${args.url}"><strong>Read from:</strong> <a href="${args.url}" target="_blank" rel="noopener noreferrer">${args.url}</a><p>${Utils.escapeHtml(snippet)}${hasMore ? '...' : ''}</p></div>`;
+                            const html = `<div class="tool-result" role="group" aria-label="Read content from ${call.arguments.url}"><strong>Read from:</strong> <a href="${call.arguments.url}" target="_blank" rel="noopener noreferrer">${call.arguments.url}</a><p>${Utils.escapeHtml(snippet)}${hasMore ? '...' : ''}</p></div>`;
                             UIController.addHtmlMessage('ai', html);
-                            chatHistory.push({ role: 'assistant', content: `Read content from ${args.url}:\n${snippet}${hasMore ? '...' : ''}` });
-                            debugLog(`[read_url] url=${args.url}, offset=${offset}, snippetLength=${snippet.length}, hasMore=${hasMore}`);
+                            chatHistory.push({ role: 'assistant', content: `Read content from ${call.arguments.url}:\n${snippet}${hasMore ? '...' : ''}` });
+                            debugLog(`[read_url] url=${call.arguments.url}, offset=${offset}, snippetLength=${snippet.length}, hasMore=${hasMore}`);
                             // If no more content, break
                             if (!hasMore) break;
                             // Ask AI decision
@@ -729,10 +725,10 @@ Answer: [your final, concise answer here]
                         }
                     }
 
-                } else if (tool === 'instant_answer') {
-                    UIController.showStatus(`Retrieving instant answer for "${args.query}"...`);
+                } else if (call.tool === 'instant_answer') {
+                    UIController.showStatus(`Retrieving instant answer for "${call.arguments.query}"...`);
                     try {
-                        const ia = await ToolsService.instantAnswer(args.query);
+                        const ia = await ToolsService.instantAnswer(call.arguments.query);
                         const text = JSON.stringify(ia, null, 2);
                         UIController.addMessage('ai', text);
                         chatHistory.push({ role: 'assistant', content: text });
@@ -742,7 +738,7 @@ Answer: [your final, concise answer here]
                     }
 
                 } else {
-                    throw new Error(`Unknown tool: ${tool}`);
+                    throw new Error(`Unknown tool: ${call.tool}`);
                 }
             }
         } catch (err) {
@@ -750,7 +746,7 @@ Answer: [your final, concise answer here]
         } finally {
             UIController.clearStatus();
             // Only resume once after the first non-duplicate tool call
-            if (!skipContinue && !isDuplicate && !hasResumed) {
+            if (!call.skipContinue && !isDuplicate && !hasResumed) {
                 hasResumed = true;
                 try {
                     const selectedModel = SettingsController.getSettings().selectedModel;
