@@ -719,7 +719,9 @@ Answer: [your final, concise answer based on the reasoning above]`;
         if (!urlsToRead.length) return;
         autoReadInProgress = true;
         try {
-            for (const url of urlsToRead) {
+            for (let i = 0; i < urlsToRead.length; i++) {
+                const url = urlsToRead[i];
+                UIController.showSpinner(`Reading ${i + 1} of ${urlsToRead.length} URLs: ${url}...`);
                 await processToolCall({ tool: 'read_url', arguments: { url, start: 0, length: 1122 }, skipContinue: true });
             }
             // After all reads, auto-summarize
