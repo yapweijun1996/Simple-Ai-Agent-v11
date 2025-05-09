@@ -629,23 +629,27 @@ Answer: [your final, concise answer based on the reasoning above]`;
             UIController.showStatus(`Reading content from ${args.url}...`);
             // Fetch full page text
             result = await ToolsService.readUrl(args.url);
-            // Determine slicing parameters
+            const fullText = String(result);
+            const totalLength = fullText.length;
             const start = (typeof args.start === 'number' && args.start >= 0) ? args.start : 0;
-            const length = (typeof args.length === 'number' && args.length > 0) ? args.length : 1122;
-            const snippet = String(result).slice(start, start + length);
-            const hasMore = (start + length) < String(result).length;
-            const html = `<div class="tool-result" role="group" aria-label="Read content from ${args.url}"><strong>Read from:</strong> <a href="${args.url}" target="_blank" rel="noopener noreferrer">${args.url}</a><p>${Utils.escapeHtml(snippet)}${hasMore ? '...' : ''}</p></div>`;
-            UIController.addHtmlMessage('ai', html);
-            // Add plain text snippet to chat history for model processing
-            const plainTextSnippet = `Read content from ${args.url}:\n${snippet}${hasMore ? '...' : ''}`;
-            chatHistory.push({ role: 'assistant', content: plainTextSnippet });
-            // Debug logs for read_url logic
-            console.log(`[read_url] url=${args.url}, fullLength=${String(result).length}, snippetLength=${snippet.length}, hasMore=${hasMore}`);
+            const chunkSize = (typeof args.length === 'number' && args.length > 0) ? args.length : 1122;
+            let offset = start;
 
-            // Auto-decision: ask AI if we should fetch more
-            if (hasMore) {
-                console.log(`[read_url] Prompting AI for decision to fetch more (start=${start}, length=${length})`);
-                // Retrieve last user query
+            // Loop through content in fixed-size chunks until AI says to stop
+            while (true) {
+                const snippet = fullText.slice(offset, offset + chunkSize);
+                const hasMore = (offset + chunkSize) < totalLength;
+                const html = `<div class="tool-result" role="group" aria-label="Read content from ${args.url}"><strong>Read from:</strong> <a href="${args.url}" target="_blank" rel="noopener noreferrer">${args.url}</a><p>${Utils.escapeHtml(snippet)}${hasMore ? '...' : ''}</p></div>`;
+                UIController.addHtmlMessage('ai', html);
+                const plainTextSnippet = `Read content from ${args.url}:\n${snippet}${hasMore ? '...' : ''}`;
+                chatHistory.push({ role: 'assistant', content: plainTextSnippet });
+                console.log(`[read_url] url=${args.url}, offset=${offset}, snippetLength=${snippet.length}, hasMore=${hasMore}`);
+
+                // If no more content, break
+                if (!hasMore) break;
+
+                // Ask AI if more content should be fetched
+                console.log(`[read_url] Prompting AI for decision to fetch more (offset=${offset}, length=${chunkSize})`);
                 const lastUser = chatHistory.filter(m => m.role === 'user').pop().content;
                 const decisionPrompt = `User query: "${lastUser}"\nSnippet: "${snippet}"\n\nShould you fetch more content from this URL? Reply YES or NO.`;
                 let shouldFetchMore = false;
@@ -657,23 +661,14 @@ Answer: [your final, concise answer based on the reasoning above]`;
                             { role: 'user', content: decisionPrompt }
                         ]);
                         const decisionText = decisionRes.choices[0].message.content.trim().toLowerCase();
-                        console.log(`[read_url] AI decision response: "${decisionText}"`);
                         shouldFetchMore = decisionText.startsWith('yes');
                     }
                 } catch (err) {
                     console.error('Decision fetch error:', err);
                 }
-                if (shouldFetchMore) {
-                    console.log(`[read_url] Fetching extended content slice from ${start + length} to ${start + length + 5000}`);
-                    UIController.showStatus(`Fetching extended content from ${args.url}...`);
-                    const extended = String(result).slice(start + length, start + length + 5000);
-                    UIController.clearStatus();
-                    const extHasMore = (start + length + 5000) < String(result).length;
-                    const extHtml = `<div class=\"tool-result\" role=\"group\" aria-label=\"Extended content from ${args.url}\"><strong>Extended from:</strong> <a href=\"${args.url}\" target=\"_blank\" rel=\"noopener noreferrer\">${args.url}</a><p>${Utils.escapeHtml(extended)}${extHasMore ? '...' : ''}</p></div>`;
-                    UIController.addHtmlMessage('ai', extHtml);
-                    const extTextSnippet = `Extended content from ${args.url}:\n${extended}${extHasMore ? '...' : ''}`;
-                    chatHistory.push({ role: 'assistant', content: extTextSnippet });
-                }
+                if (!shouldFetchMore) break;
+                // Advance offset for next chunk
+                offset += chunkSize;
             }
         } else if (tool === 'instant_answer') {
             UIController.showStatus(`Retrieving instant answer for "${args.query}"...`);
