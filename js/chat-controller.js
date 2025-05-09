@@ -741,19 +741,18 @@ Answer: [your final, concise answer here]
             debugLog('Error during tool execution:', err);
         } finally {
             UIController.clearStatus();
-            if (!skipContinue) {
+            // Only continue if this is not a nested skipContinue call and not a duplicate tool call
+            if (!skipContinue && !isDuplicate) {
                 try {
                     const selectedModel = SettingsController.getSettings().selectedModel;
                     const lastUserMsg = chatHistory.filter(m => m.role === 'user').pop()?.content || '';
-                    // Prepare the next user message for continuation
                     const nextMsg = settings.enableCoT ? enhanceWithCoT(lastUserMsg) : lastUserMsg;
+                    // Push and resume conversation
+                    chatHistory.push({ role: 'user', content: nextMsg });
                     if (selectedModel.startsWith('gpt')) {
-                        // Push the continuation user message into history
-                        chatHistory.push({ role: 'user', content: nextMsg });
                         debugLog('Continuing conversation with GPT:', nextMsg);
                         await handleOpenAIMessage(selectedModel, nextMsg);
                     } else {
-                        chatHistory.push({ role: 'user', content: nextMsg });
                         debugLog('Continuing conversation with Gemini:', nextMsg);
                         await handleGeminiMessage(selectedModel, nextMsg);
                     }
