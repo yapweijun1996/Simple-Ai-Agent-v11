@@ -817,22 +817,63 @@ Answer: [your final, concise answer based on the reasoning above]`;
     async function summarizeSnippets() {
         if (!readSnippets.length) return;
         const selectedModel = SettingsController.getSettings().selectedModel;
-        const prompt = `Summarize the following information extracted from multiple web pages:\n\n${readSnippets.join('\n---\n')}`;
+        const MAX_PROMPT_LENGTH = 16000; // chars, safe for GPT-4.1 context
+        let prompt = `Summarize the following information extracted from multiple web pages:\n\n${readSnippets.join('\n---\n')}`;
         let aiReply = '';
         UIController.showSpinner('Summarizing information...');
         try {
-            if (selectedModel.startsWith('gpt')) {
-                const res = await ApiService.sendOpenAIRequest(selectedModel, [
+            // If prompt is too long, batch summarize
+            if (prompt.length > MAX_PROMPT_LENGTH) {
+                // Split into batches of ~MAX_PROMPT_LENGTH/2 chars
+                let batchSummaries = [];
+                let batch = [];
+                let batchLen = 0;
+                for (let snippet of readSnippets) {
+                    if (batchLen + snippet.length > MAX_PROMPT_LENGTH / 2 && batch.length) {
+                        // Summarize current batch
+                        const batchPrompt = `Summarize the following information extracted from web pages:\n\n${batch.join('\n---\n')}`;
+                        const res = await ApiService.sendOpenAIRequest(selectedModel, [
+                            { role: 'system', content: 'You are an assistant that synthesizes information from multiple sources.' },
+                            { role: 'user', content: batchPrompt }
+                        ]);
+                        batchSummaries.push(res.choices[0].message.content.trim());
+                        batch = [];
+                        batchLen = 0;
+                    }
+                    batch.push(snippet);
+                    batchLen += snippet.length;
+                }
+                // Summarize last batch
+                if (batch.length) {
+                    const batchPrompt = `Summarize the following information extracted from web pages:\n\n${batch.join('\n---\n')}`;
+                    const res = await ApiService.sendOpenAIRequest(selectedModel, [
+                        { role: 'system', content: 'You are an assistant that synthesizes information from multiple sources.' },
+                        { role: 'user', content: batchPrompt }
+                    ]);
+                    batchSummaries.push(res.choices[0].message.content.trim());
+                }
+                // Now summarize the summaries
+                const finalPrompt = `Combine and further summarize the following summaries from multiple web pages:\n\n${batchSummaries.join('\n---\n')}`;
+                const finalRes = await ApiService.sendOpenAIRequest(selectedModel, [
                     { role: 'system', content: 'You are an assistant that synthesizes information from multiple sources.' },
-                    { role: 'user', content: prompt }
+                    { role: 'user', content: finalPrompt }
                 ]);
-                aiReply = res.choices[0].message.content.trim();
+                aiReply = finalRes.choices[0].message.content.trim();
+            } else {
+                // Normal summarization
+                if (selectedModel.startsWith('gpt')) {
+                    const res = await ApiService.sendOpenAIRequest(selectedModel, [
+                        { role: 'system', content: 'You are an assistant that synthesizes information from multiple sources.' },
+                        { role: 'user', content: prompt }
+                    ]);
+                    aiReply = res.choices[0].message.content.trim();
+                }
             }
             if (aiReply) {
                 UIController.addMessage('ai', `Summary:\n${aiReply}`);
             }
         } catch (err) {
-            UIController.addMessage('ai', 'Summarization failed.');
+            UIController.addMessage('ai', `Summarization failed. Error: ${err && err.message ? err.message : err}`);
         }
         UIController.hideSpinner();
         readSnippets = [];
