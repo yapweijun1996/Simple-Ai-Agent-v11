@@ -710,14 +710,62 @@ Answer: [your final, concise answer based on the reasoning above]`;
                 const chunkSize = (typeof args.length === 'number' && args.length > 0) ? args.length : 1122;
                 let offset = start;
 
-                // Loop through and display all content in fixed-size chunks
-                while (offset < totalLength) {
+                // Loop through content in fixed-size chunks until AI says to stop
+                while (true) {
                     const snippet = fullText.slice(offset, offset + chunkSize);
-                    const html = `<div class="tool-result" role="group" aria-label="Read content from ${args.url}"><strong>Read from:</strong> <a href="${args.url}" target="_blank" rel="noopener noreferrer">${args.url}</a><p>${Utils.escapeHtml(snippet)}</p></div>`;
+                    const hasMore = (offset + chunkSize) < totalLength;
+                    const html = `<div class="tool-result" role="group" aria-label="Read content from ${args.url}"><strong>Read from:</strong> <a href="${args.url}" target="_blank" rel="noopener noreferrer">${args.url}</a><p>${Utils.escapeHtml(snippet)}${hasMore ? '...' : ''}</p></div>`;
                     UIController.addHtmlMessage('ai', html);
-                    const plainTextSnippet = `Read content from ${args.url}:\n${snippet}`;
+                    const plainTextSnippet = `Read content from ${args.url}:\n${snippet}${hasMore ? '...' : ''}`;
                     chatHistory.push({ role: 'assistant', content: plainTextSnippet });
-                    debugLog(`[read_url] url=${args.url}, offset=${offset}, snippetLength=${snippet.length}, totalLength=${totalLength}`);
+                    debugLog(`[read_url] url=${args.url}, offset=${offset}, snippetLength=${snippet.length}, hasMore=${hasMore}`);
+
+                    // If no more content, break
+                    if (!hasMore) break;
+
+                    // Ask AI if more content should be fetched
+                    debugLog(`[read_url] Prompting AI for decision to fetch more (offset=${offset}, length=${chunkSize})`);
+                    const lastUser = chatHistory.filter(m => m.role === 'user').pop().content;
+                    const decisionPrompt =
+                        `SNIPPET ONLY:\n${snippet}\n\n` +
+                        `If you need more text from this URL, reply ONLY with YES. ` +
+                        `If no more text is needed, reply ONLY with NO. NOTHING ELSE.`;
+                    let shouldFetchMore = false;
+                    try {
+                        const selectedModel = SettingsController.getSettings().selectedModel;
+                        if (selectedModel.startsWith('gpt')) {
+                            // OpenAI decision
+                            const decisionRes = await ApiService.sendOpenAIRequest(selectedModel, [
+                                { role: 'system', content: 'You decide whether additional URL content is needed.' },
+                                { role: 'user', content: decisionPrompt }
+                            ]);
+                            const decisionText = decisionRes.choices[0].message.content.trim().toLowerCase();
+                            debugLog(`[read_url] AI decision response (OpenAI): "${decisionText}"`);
+                            shouldFetchMore = decisionText.startsWith('yes');
+                        } else {
+                            // Gemini/Gemma decision (minimal context)
+                            const session = ApiService.createGeminiSession(selectedModel);
+                            // Provide only the decision prompt, no full chat history
+                            const decisionContext = [ { role: 'user', content: decisionPrompt } ];
+                            const result = await session.sendMessage('', decisionContext);
+                            let decisionText = '';
+                            const candidate = result.candidates && result.candidates[0];
+                            if (candidate) {
+                                if (candidate.content.parts) {
+                                    decisionText = candidate.content.parts.map(p => p.text).join(' ');
+                                } else if (candidate.content.text) {
+                                    decisionText = candidate.content.text;
+                                }
+                            }
+                            decisionText = decisionText.trim().toLowerCase();
+                            debugLog(`[read_url] AI decision response (Gemini): "${decisionText}"`);
+                            shouldFetchMore = decisionText.startsWith('yes');
+                        }
+                    } catch (err) {
+                        debugLog('Decision fetch error:', err);
+                    }
+                    if (!shouldFetchMore) break;
+                    // Advance offset for next chunk
                     offset += chunkSize;
                 }
             } else if (tool === 'instant_answer') {
