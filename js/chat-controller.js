@@ -416,6 +416,8 @@ Answer: [your final, concise answer based on the reasoning above]`;
         } else {
             // Show status for non-streaming response
             UIController.showStatus('Waiting for AI response...');
+            // FIRST_EDIT: Show an empty AI message placeholder in non-streaming OpenAI
+            const aiMsgElement = UIController.createEmptyAIMessage();
             // Non-streaming approach
             try {
                 const systemMsgNS = chatHistory[0];
@@ -457,10 +459,11 @@ Answer: [your final, concise answer based on the reasoning above]`;
                     
                     // Show appropriate content in the UI based on settings
                     const displayText = formatResponseForDisplay(processed);
-                    UIController.addMessage('ai', displayText);
+                    // SECOND_EDIT: Update the placeholder instead of adding a new bubble
+                    UIController.updateMessageContent(aiMsgElement, displayText);
                 } else {
-                    chatHistory.push({ role: 'assistant', content: reply });
-                    UIController.addMessage('ai', reply);
+                    // THIRD_EDIT: Update the placeholder with the raw reply
+                    UIController.updateMessageContent(aiMsgElement, reply);
                 }
             } catch (err) {
                 throw err;
@@ -561,7 +564,10 @@ Answer: [your final, concise answer based on the reasoning above]`;
                 isThinking = false;
             }
         } else {
-            // Non-streaming approach
+            // Non-streaming approach for Gemini
+            // FOURTH_EDIT: Show status and placeholder in non-streaming Gemini
+            UIController.showStatus('Waiting for AI response...');
+            const aiMsgElement = UIController.createEmptyAIMessage();
             try {
                 const systemMsgGNS = chatHistory[0];
                 // Trim context
@@ -605,10 +611,11 @@ Answer: [your final, concise answer based on the reasoning above]`;
                     
                     // Show appropriate content in the UI based on settings
                     const displayText = formatResponseForDisplay(processed);
-                    UIController.addMessage('ai', displayText);
+                    // FIFTH_EDIT: Update the placeholder with CoT display
+                    UIController.updateMessageContent(aiMsgElement, displayText);
                 } else {
-                    chatHistory.push({ role: 'assistant', content: textResponse });
-                    UIController.addMessage('ai', textResponse);
+                    // SIXTH_EDIT: Update the placeholder with the Gemini reply
+                    UIController.updateMessageContent(aiMsgElement, textResponse);
                 }
             } catch (err) {
                 throw err;
