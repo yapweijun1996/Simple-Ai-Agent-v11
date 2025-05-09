@@ -372,6 +372,13 @@ Answer: [your final, concise answer here]
         const displayText = settings.enableCoT ? formatResponseForDisplay(processed) : fullReply;
         UIController.addMessage('ai', displayText);
         chatHistory.push({ role: 'assistant', content: fullReply });
+
+        // Resume GPT with the last user message (CoT-enhanced if enabled)
+        const rawLastUser = chatHistory.filter(m => m.role === 'user').pop()?.content || '';
+        const resumeInput = settings.enableCoT ? enhanceWithCoT(rawLastUser) : rawLastUser;
+        debugLog('Resuming conversation with GPT using:', resumeInput);
+        // handleOpenAIMessage will push resumeInput into history
+        await handleOpenAIMessage(model, resumeInput);
     }
 
     /**
@@ -639,12 +646,12 @@ Answer: [your final, concise answer here]
                 try {
                     const selectedModel = SettingsController.getSettings().selectedModel;
                     if (selectedModel.startsWith('gpt')) {
-                        // Resume GPT with last user message instead of empty prompt
-                        const lastUserMsg = chatHistory.filter(m => m.role === 'user').pop()?.content || '';
-                        const nextMsg = settings.enableCoT ? enhanceWithCoT(lastUserMsg) : lastUserMsg;
-                        chatHistory.push({ role: 'user', content: nextMsg });
-                        debugLog('Continuing conversation with GPT:', nextMsg);
-                        await handleOpenAIMessage(selectedModel, nextMsg);
+                        // Resume GPT with the last user message (CoT-enhanced if enabled)
+                        const rawLastUser = chatHistory.filter(m => m.role === 'user').pop()?.content || '';
+                        const resumeInput = settings.enableCoT ? enhanceWithCoT(rawLastUser) : rawLastUser;
+                        debugLog('Resuming conversation with GPT using:', resumeInput);
+                        // handleOpenAIMessage will push resumeInput into history
+                        await handleOpenAIMessage(selectedModel, resumeInput);
                     } else {
                         // For Gemini, push next user prompt for continuation
                         const lastUserMsg = chatHistory.filter(m => m.role === 'user').pop()?.content || '';
