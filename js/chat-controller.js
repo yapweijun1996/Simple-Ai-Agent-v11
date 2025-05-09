@@ -673,9 +673,11 @@ Answer: [your final, concise answer based on the reasoning above]`;
                         debugLog(`[read_url] AI decision response (OpenAI): "${decisionText}"`);
                         shouldFetchMore = decisionText.startsWith('yes');
                     } else {
-                        // Gemini/Gemma decision
+                        // Gemini/Gemma decision (minimal context)
                         const session = ApiService.createGeminiSession(selectedModel);
-                        const result = await session.sendMessage(decisionPrompt, chatHistory);
+                        // Provide only the decision prompt, no full chat history
+                        const decisionContext = [ { role: 'user', content: decisionPrompt } ];
+                        const result = await session.sendMessage('', decisionContext);
                         let decisionText = '';
                         const candidate = result.candidates && result.candidates[0];
                         if (candidate) {
