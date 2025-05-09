@@ -661,15 +661,33 @@ Answer: [your final, concise answer based on the reasoning above]`;
                 try {
                     const selectedModel = SettingsController.getSettings().selectedModel;
                     if (selectedModel.startsWith('gpt')) {
+                        // OpenAI decision
                         const decisionRes = await ApiService.sendOpenAIRequest(selectedModel, [
                             { role: 'system', content: 'You decide whether additional URL content is needed.' },
                             { role: 'user', content: decisionPrompt }
                         ]);
                         const decisionText = decisionRes.choices[0].message.content.trim().toLowerCase();
+                        debugLog(`[read_url] AI decision response (OpenAI): "${decisionText}"`);
+                        shouldFetchMore = decisionText.startsWith('yes');
+                    } else {
+                        // Gemini/Gemma decision
+                        const session = ApiService.createGeminiSession(selectedModel);
+                        const result = await session.sendMessage(decisionPrompt, chatHistory);
+                        let decisionText = '';
+                        const candidate = result.candidates && result.candidates[0];
+                        if (candidate) {
+                            if (candidate.content.parts) {
+                                decisionText = candidate.content.parts.map(p => p.text).join(' ');
+                            } else if (candidate.content.text) {
+                                decisionText = candidate.content.text;
+                            }
+                        }
+                        decisionText = decisionText.trim().toLowerCase();
+                        debugLog(`[read_url] AI decision response (Gemini): "${decisionText}"`);
                         shouldFetchMore = decisionText.startsWith('yes');
                     }
                 } catch (err) {
-                    console.error('Decision fetch error:', err);
+                    debugLog('Decision fetch error:', err);
                 }
                 if (!shouldFetchMore) break;
                 // Advance offset for next chunk
