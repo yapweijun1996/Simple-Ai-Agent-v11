@@ -165,11 +165,11 @@ const ApiService = (function() {
                 };
                 
                 const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`;
-                const response = await Utils.fetchWithProxyRetry(url, {
+                const response = await Utils.fetchWithRetry(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(requestBody)
-                }, undefined, 3, 1000, 10000);
+                }, 3, 1000, 10000);
                 
                 if (!response.ok) {
                     const errText = await response.text();

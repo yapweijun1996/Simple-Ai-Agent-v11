@@ -732,11 +732,16 @@ Answer: [your final, concise answer based on the reasoning above]`;
         UIController.clearStatus();
         // Continue Chain-of-Thought with updated history for the active model, unless skipped
         if (!skipContinue) {
-            const selectedModel = SettingsController.getSettings().selectedModel;
-            if (selectedModel.startsWith('gpt')) {
-                await handleOpenAIMessage(selectedModel, '');
-            } else {
-                await handleGeminiMessage(selectedModel, '');
+            try {
+                const selectedModel = SettingsController.getSettings().selectedModel;
+                if (selectedModel.startsWith('gpt')) {
+                    await handleOpenAIMessage(selectedModel, '');
+                } else {
+                    await handleGeminiMessage(selectedModel, '');
+                }
+            } catch (err) {
+                debugLog('Continuation error:', err);
+                // Preserve UI responsiveness; skip further reasoning on error
             }
         }
     }
