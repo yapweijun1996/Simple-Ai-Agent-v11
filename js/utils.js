@@ -219,25 +219,26 @@ const Utils = (function() {
         }
     }
 
-    async function fetchWithRetry(resource, options = {}, retries = 3, retryDelay = 1000, timeout = 10000) {
-        let lastError;
-        for (let attempt = 1; attempt <= retries; attempt++) {
+    async function fetchWithRetry(url, options = {}, maxAttempts = 3, delay = 1000, timeout = 10000) {
+        let attempt = 0;
+        while (attempt < maxAttempts) {
             try {
-                const response = await fetchWithTimeout(resource, options, timeout);
-                if (!response.ok) {
-                    const text = await response.text();
-                    throw new Error(`HTTP ${response.status}: ${text}`);
-                }
+                const controller = new AbortController();
+                const id = setTimeout(() => controller.abort('timeout'), timeout);
+                const response = await fetch(url, { ...options, signal: controller.signal });
+                clearTimeout(id);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 return response;
             } catch (err) {
-                lastError = err;
-                console.warn(`Fetch attempt ${attempt} failed:`, err);
-                if (attempt < retries) {
-                    await new Promise(r => setTimeout(r, retryDelay));
+                if (err.name === 'AbortError') {
+                    console.error(`Fetch attempt ${attempt + 1} aborted:`, err.message || err);
+                    throw err; // Do not retry on AbortError
                 }
+                attempt++;
+                if (attempt >= maxAttempts) throw err;
+                await new Promise(res => setTimeout(res, delay));
             }
         }
-        throw lastError;
     }
 
     // Add CORS proxy list and proxy-based retry helper

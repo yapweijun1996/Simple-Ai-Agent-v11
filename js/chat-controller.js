@@ -14,6 +14,9 @@ const ChatController = (function() {
     let lastThinkingContent = '';
     let lastAnswerContent = '';
     let readSnippets = [];
+    let lastToolCall = null;
+    let lastToolCallCount = 0;
+    const MAX_TOOL_CALL_REPEAT = 3;
 
     // Add helper to robustly extract JSON tool calls (handles markdown fences)
     function extractToolCall(text) {
@@ -32,7 +35,9 @@ const ChatController = (function() {
 2.  **Deconstruct:** Break the problem down into smaller, logical steps needed to reach the solution.
 3.  **Execute & Explain:** Work through each step sequentially. Show your reasoning, calculations, or data analysis for each step clearly.
 4.  **Synthesize:** Combine the findings from the previous steps to formulate the final conclusion.
-5.  **Final Answer:** State the final answer clearly and concisely, prefixed exactly with "\\nFinal Answer:".
+5.  **Final Answer:** State the final answer clearly and concisely, prefixed exactly with "\nFinal Answer:".
+
+**Important:** After each tool call, you must reason with the results before making another tool call. Do NOT output multiple tool calls in a row. If you need to use another tool, first explain what you learned from the previous tool result, then decide if another tool call is needed.
 
 Begin Reasoning Now:
 `;
@@ -635,18 +640,41 @@ Answer: [your final, concise answer based on the reasoning above]`;
     // Enhanced processToolCall using registry and validation
     async function processToolCall(call) {
         const { tool, arguments: args, skipContinue } = call;
-        if (!toolHandlers[tool]) {
-            UIController.addMessage('ai', `Error: Unknown tool: ${tool}`);
+        // Tool call loop protection
+        const callSignature = JSON.stringify({ tool, args });
+        if (lastToolCall === callSignature) {
+            lastToolCallCount++;
+        } else {
+            lastToolCall = callSignature;
+            lastToolCallCount = 1;
+        }
+        if (lastToolCallCount > MAX_TOOL_CALL_REPEAT) {
+            UIController.addMessage('ai', `Error: Tool call loop detected. The same tool call has been made more than ${MAX_TOOL_CALL_REPEAT} times in a row. Stopping to prevent infinite loop.`);
             return;
         }
         await toolHandlers[tool](args);
-        // Continue Chain-of-Thought with updated history for the active model, unless skipped
+        // Only continue reasoning if the last AI reply was NOT a tool call
         if (!skipContinue) {
-            const selectedModel = SettingsController.getSettings().selectedModel;
-            if (selectedModel.startsWith('gpt')) {
-                await handleOpenAIMessage(selectedModel, '');
+            // Check if the last chatHistory entry is a tool call
+            const lastEntry = chatHistory[chatHistory.length - 1];
+            let isToolCall = false;
+            if (lastEntry && typeof lastEntry.content === 'string') {
+                try {
+                    const parsed = JSON.parse(lastEntry.content);
+                    if (parsed.tool && parsed.arguments) {
+                        isToolCall = true;
+                    }
+                } catch {}
+            }
+            if (!isToolCall) {
+                const selectedModel = SettingsController.getSettings().selectedModel;
+                if (selectedModel.startsWith('gpt')) {
+                    await handleOpenAIMessage(selectedModel, '');
+                } else {
+                    await handleGeminiMessage(selectedModel, '');
+                }
             } else {
-                await handleGeminiMessage(selectedModel, '');
+                UIController.addMessage('ai', 'Warning: AI outputted another tool call without reasoning. Stopping to prevent infinite loop.');
             }
         }
     }
