@@ -15,6 +15,8 @@ const ChatController = (function() {
     let lastAnswerContent = '';
     // Track executed tool calls to prevent infinite loops
     let executedToolCalls = new Set();
+    // Count of non-duplicate tool calls in current sendMessage cycle
+    let toolCallsThisRound = 0;
 
     // Debug logger for ChatController
     function debugLog(...args) {
@@ -285,6 +287,8 @@ Answer: [your final, concise answer here]
      * Sends a message to the AI and handles the response
      */
     async function sendMessage() {
+        // Reset per-message tool call counter
+        toolCallsThisRound = 0;
         const message = UIController.getUserInput();
         if (!message) return;
         
@@ -636,6 +640,10 @@ Answer: [your final, concise answer here]
         const { tool, arguments: args, skipContinue } = call;
         const callKey = JSON.stringify(call);
         const isDuplicate = executedToolCalls.has(callKey);
+        // Count only first non-duplicate tool call per cycle
+        if (!isDuplicate) {
+            toolCallsThisRound += 1;
+        }
 
         try {
             if (isDuplicate) {
@@ -652,7 +660,7 @@ Answer: [your final, concise answer here]
                         const htmlItems = items.map(r =>
                             `<li><a href="${r.url}" target="_blank" rel="noopener noreferrer">${r.title}</a><br><small>${r.url}</small><p>${Utils.escapeHtml(r.snippet)}</p></li>`
                         ).join('');
-                        const html = `<div class="tool-result" role="group" aria-label="Search results for ${args.query}"><strong>Search results for “${args.query}” (${items.length}):</strong><ul>${htmlItems}</ul></div>`;
+                        const html = `<div class="tool-result" role="group" aria-label="Search results for ${args.query}"><strong>Search results for "${args.query}" (${items.length}):</strong><ul>${htmlItems}</ul></div>`;
                         UIController.addHtmlMessage('ai', html);
                         const plainTextResults = items.map((r, i) => `${i+1}. ${r.title} (${r.url}) - ${r.snippet}`).join('\n');
                         chatHistory.push({ role: 'assistant', content: `Search results for "${args.query}" (${items.length}):\n${plainTextResults}` });
@@ -742,7 +750,7 @@ Answer: [your final, concise answer here]
         } finally {
             UIController.clearStatus();
             // Only continue if this is not a nested skipContinue call and not a duplicate tool call
-            if (!skipContinue && !isDuplicate) {
+            if (!skipContinue && !isDuplicate && toolCallsThisRound === 1) {
                 try {
                     const selectedModel = SettingsController.getSettings().selectedModel;
                     const lastUserMsg = chatHistory.filter(m => m.role === 'user').pop()?.content || '';
