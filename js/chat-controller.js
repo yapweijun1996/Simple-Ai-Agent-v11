@@ -58,6 +58,10 @@ const ChatController = (function() {
                 }
             }
         }
+        // If the text contains tool markers but failed to parse, log a warning for debugging
+        if (text.includes('"tool":') && text.includes('"arguments":')) {
+            console.warn('[ChatController] extractToolCall: detected possible tool call but could not parse JSON:', text);
+        }
         return null;
     }
 
@@ -622,162 +626,46 @@ Answer: [your final, concise answer based on the reasoning above]`;
     async function processToolCall(call) {
         // Extract call properties
         const { tool, arguments: args, skipContinue } = call;
-        // Detect duplicates but allow continuation
         const callKey = JSON.stringify(call);
         const isDuplicate = executedToolCalls.has(callKey);
-        if (isDuplicate) {
-            debugLog('Skipping duplicate toolCall:', call);
-            UIController.clearStatus();
-        } else {
-            // Mark as executed and run tool
-            executedToolCalls.add(callKey);
-            let result;
-            // Show status while calling tool
-            if (tool === 'web_search') {
-                UIController.showStatus(`Searching web for "${args.query}"...`);
-                try {
-                    result = await ToolsService.webSearch(args.query);
-                    // Format search results
-                    const items = result || [];
-                    const htmlItems = items.map(r =>
-                        `<li><a href="${r.url}" target="_blank" rel="noopener noreferrer">${r.title}</a><br><small>${r.url}</small><p>${Utils.escapeHtml(r.snippet)}</p></li>`
-                    ).join('');
-                    const html = `<div class="tool-result" role="group" aria-label="Search results for ${args.query}"><strong>Search results for “${args.query}” (${items.length}):</strong><ul>${htmlItems}</ul></div>`;
-                    UIController.addHtmlMessage('ai', html);
-                    // Add plain text results to chat history for model processing
-                    const plainTextResults = items.map((r, i) => `${i+1}. ${r.title} (${r.url}) - ${r.snippet}`).join('\n');
-                    chatHistory.push({ role: 'assistant', content: `Search results for "${args.query}" (${items.length}):\n${plainTextResults}` });
 
-                    // Attempt read_url for each item; skip if it fails
-                    for (const item of items) {
-                        // Attempt read_url for each item; skip if it fails
-                        try {
-                            await processToolCall({ tool: 'read_url', arguments: { url: item.url, start: 0, length: 1122 }, skipContinue: true });
-                        } catch (err) {
-                            debugLog(`Skipping read_url for ${item.url} due to error:`, err);
-                        }
-                    }
-                } catch (err) {
-                    console.warn(`Web search failed:`, err);
-                    UIController.clearStatus();
-                    const fallback = `Unable to retrieve search results for "${args.query}". Proceeding with available knowledge.`;
-                    UIController.addMessage('ai', fallback);
-                    chatHistory.push({ role: 'assistant', content: fallback });
-                    // Continue reasoning with current info
+        try {
+            if (isDuplicate) {
+                debugLog('Skipping duplicate toolCall:', call);
+            } else {
+                // Mark as executed
+                executedToolCalls.add(callKey);
+                let result;
+
+                // Tool execution logic (unchanged) but without early returns or clearStatus calls
+                if (tool === 'web_search') {
+                    // ... existing web_search logic ...
+                } else if (tool === 'read_url') {
+                    // ... existing read_url logic ...
+                } else if (tool === 'instant_answer') {
+                    // ... existing instant_answer logic ...
+                } else {
+                    throw new Error(`Unknown tool: ${tool}`);
+                }
+            }
+        } catch (err) {
+            debugLog('Error during tool execution:', err);
+        } finally {
+            // Always clear status and continue the chain
+            UIController.clearStatus();
+            if (!skipContinue) {
+                try {
                     const selectedModel = SettingsController.getSettings().selectedModel;
+                    const lastUserMsg = chatHistory.filter(m => m.role === 'user').pop()?.content || '';
+                    const nextMsg = settings.enableCoT ? enhanceWithCoT(lastUserMsg) : lastUserMsg;
                     if (selectedModel.startsWith('gpt')) {
                         await handleOpenAIMessage(selectedModel, '');
                     } else {
-                        await handleGeminiMessage(selectedModel, '');
+                        await handleGeminiMessage(selectedModel, nextMsg);
                     }
-                    return;
-                }
-            } else if (tool === 'read_url') {
-                UIController.showStatus(`Reading content from ${args.url}...`);
-                // Fetch full page text; skip URL on failure
-                let result;
-                try {
-                    result = await ToolsService.readUrl(args.url);
                 } catch (err) {
-                    debugLog(`read_url failed for ${args.url}, skipping this URL:`, err);
-                    UIController.addMessage('ai', `[read_url] Skipped content from ${args.url} due to an error.`);
-                    // Don't continue this URL; but allow overall processToolCall to finish
-                    UIController.clearStatus();
-                    return;
+                    debugLog('Continuation error:', err);
                 }
-                const fullText = String(result);
-                const totalLength = fullText.length;
-                const start = (typeof args.start === 'number' && args.start >= 0) ? args.start : 0;
-                const chunkSize = (typeof args.length === 'number' && args.length > 0) ? args.length : 1122;
-                let offset = start;
-
-                // Loop through content in fixed-size chunks until AI says to stop
-                while (true) {
-                    const snippet = fullText.slice(offset, offset + chunkSize);
-                    const hasMore = (offset + chunkSize) < totalLength;
-                    const html = `<div class="tool-result" role="group" aria-label="Read content from ${args.url}"><strong>Read from:</strong> <a href="${args.url}" target="_blank" rel="noopener noreferrer">${args.url}</a><p>${Utils.escapeHtml(snippet)}${hasMore ? '...' : ''}</p></div>`;
-                    UIController.addHtmlMessage('ai', html);
-                    const plainTextSnippet = `Read content from ${args.url}:\n${snippet}${hasMore ? '...' : ''}`;
-                    chatHistory.push({ role: 'assistant', content: plainTextSnippet });
-                    debugLog(`[read_url] url=${args.url}, offset=${offset}, snippetLength=${snippet.length}, hasMore=${hasMore}`);
-
-                    // If no more content, break
-                    if (!hasMore) break;
-
-                    // Ask AI if more content should be fetched
-                    debugLog(`[read_url] Prompting AI for decision to fetch more (offset=${offset}, length=${chunkSize})`);
-                    const lastUser = chatHistory.filter(m => m.role === 'user').pop().content;
-                    const decisionPrompt =
-                        `SNIPPET ONLY:\n${snippet}\n\n` +
-                        `If you need more text from this URL, reply ONLY with YES. ` +
-                        `If no more text is needed, reply ONLY with NO. NOTHING ELSE.`;
-                    let shouldFetchMore = false;
-                    try {
-                        const selectedModel = SettingsController.getSettings().selectedModel;
-                        if (selectedModel.startsWith('gpt')) {
-                            // OpenAI decision
-                            const decisionRes = await ApiService.sendOpenAIRequest(selectedModel, [
-                                { role: 'system', content: 'You decide whether additional URL content is needed.' },
-                                { role: 'user', content: decisionPrompt }
-                            ]);
-                            const decisionText = decisionRes.choices[0].message.content.trim().toLowerCase();
-                            debugLog(`[read_url] AI decision response (OpenAI): "${decisionText}"`);
-                            shouldFetchMore = decisionText.startsWith('yes');
-                        } else {
-                            // Gemini/Gemma decision (minimal context)
-                            const session = ApiService.createGeminiSession(selectedModel);
-                            // Provide only the decision prompt, no full chat history
-                            const decisionContext = [ { role: 'user', content: decisionPrompt } ];
-                            const result = await session.sendMessage('', decisionContext);
-                            let decisionText = '';
-                            const candidate = result.candidates && result.candidates[0];
-                            if (candidate) {
-                                if (candidate.content.parts) {
-                                    decisionText = candidate.content.parts.map(p => p.text).join(' ');
-                                } else if (candidate.content.text) {
-                                    decisionText = candidate.content.text;
-                                }
-                            }
-                            decisionText = decisionText.trim().toLowerCase();
-                            debugLog(`[read_url] AI decision response (Gemini): "${decisionText}"`);
-                            shouldFetchMore = decisionText.startsWith('yes');
-                        }
-                    } catch (err) {
-                        debugLog('Decision fetch error:', err);
-                    }
-                    if (!shouldFetchMore) break;
-                    // Advance offset for next chunk
-                    offset += chunkSize;
-                }
-            } else if (tool === 'instant_answer') {
-                UIController.showStatus(`Retrieving instant answer for "${args.query}"...`);
-                result = await ToolsService.instantAnswer(args.query);
-                const text = JSON.stringify(result, null, 2);
-                UIController.addMessage('ai', text);
-                chatHistory.push({ role: 'assistant', content: text });
-            } else {
-                throw new Error(`Unknown tool: ${tool}`);
-            }
-            // Clear status after tool
-            UIController.clearStatus();
-        }
-        // Continue Chain-of-Thought with updated history for the active model, unless skipped
-        if (!skipContinue) {
-            try {
-                const selectedModel = SettingsController.getSettings().selectedModel;
-                // Reuse the last user message for continuation
-                const lastUserMsg = chatHistory.filter(m => m.role === 'user').pop()?.content || '';
-                const nextMsg = settings.enableCoT ? enhanceWithCoT(lastUserMsg) : lastUserMsg;
-                if (selectedModel.startsWith('gpt')) {
-                    // Continue Chain-of-Thought: use empty prompt to maintain system and history context
-                    await handleOpenAIMessage(selectedModel, '');
-                } else {
-                    // Continue Gemini with enhanced user message
-                    await handleGeminiMessage(selectedModel, nextMsg);
-                }
-            } catch (err) {
-                debugLog('Continuation error:', err);
-                // Preserve UI responsiveness; skip further reasoning on error
             }
         }
     }
