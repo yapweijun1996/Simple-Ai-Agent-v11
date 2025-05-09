@@ -639,9 +639,12 @@ Answer: [your final, concise answer here]
                 try {
                     const selectedModel = SettingsController.getSettings().selectedModel;
                     if (selectedModel.startsWith('gpt')) {
-                        debugLog('Continuing conversation with GPT');
-                        // Resume GPT with existing context (tool results in chatHistory)
-                        await handleOpenAIMessage(selectedModel, '');
+                        // Resume GPT with last user message instead of empty prompt
+                        const lastUserMsg = chatHistory.filter(m => m.role === 'user').pop()?.content || '';
+                        const nextMsg = settings.enableCoT ? enhanceWithCoT(lastUserMsg) : lastUserMsg;
+                        chatHistory.push({ role: 'user', content: nextMsg });
+                        debugLog('Continuing conversation with GPT:', nextMsg);
+                        await handleOpenAIMessage(selectedModel, nextMsg);
                     } else {
                         // For Gemini, push next user prompt for continuation
                         const lastUserMsg = chatHistory.filter(m => m.role === 'user').pop()?.content || '';
