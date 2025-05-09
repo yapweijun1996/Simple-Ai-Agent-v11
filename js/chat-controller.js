@@ -14,22 +14,41 @@ const ChatController = (function() {
     let lastThinkingContent = '';
     let lastAnswerContent = '';
 
-    // Add helper to robustly extract JSON tool calls (handles markdown fences)
+    // Add helper to robustly extract JSON tool calls (handles fences and nested braces)
     function extractToolCall(text) {
-        // Extract all JSON-like blocks and parse for tool calls
-        const jsonMatches = text.match(/\{[\s\S]*?\}/g);
-        if (!jsonMatches) return null;
-        for (let match of jsonMatches) {
+        // 1. Try fenced JSON block: ```json { ... } ```
+        const fenceRegex = /```json\s*([\s\S]*?)\s*```/i;
+        const fenceMatch = text.match(fenceRegex);
+        if (fenceMatch) {
             try {
-                // Remove markdown fences and normalize quotes
-                let jsonStr = match.replace(/```json|```/g, '').trim();
-                jsonStr = jsonStr.replace(/'/g, '"');
-                const obj = JSON.parse(jsonStr);
+                const obj = JSON.parse(fenceMatch[1].trim());
                 if (obj.tool && obj.arguments) {
                     return obj;
                 }
             } catch (err) {
-                // Ignore parse errors and try next
+                console.warn('Tool JSON parse error (fenced):', err);
+            }
+        }
+        // 2. Fallback: find a balanced-brace JSON object anywhere in the text
+        for (let i = 0; i < text.length; i++) {
+            if (text[i] === '{') {
+                let depth = 0;
+                for (let j = i; j < text.length; j++) {
+                    if (text[j] === '{') depth++;
+                    else if (text[j] === '}') depth--;
+                    if (depth === 0) {
+                        const candidate = text.slice(i, j + 1);
+                        try {
+                            const obj = JSON.parse(candidate);
+                            if (obj.tool && obj.arguments) {
+                                return obj;
+                            }
+                        } catch (_) {
+                            // not valid JSON or not a tool call
+                        }
+                        break;
+                    }
+                }
             }
         }
         return null;
