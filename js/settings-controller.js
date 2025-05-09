@@ -6,11 +6,6 @@
 const SettingsController = (function() {
     'use strict';
 
-    // Debug logger for SettingsController
-    function debugLog(...args) {
-        console.log('[SettingsController]', ...args);
-    }
-
     // Private state
     let settingsModal = null;
     let settings = {
@@ -26,7 +21,6 @@ const SettingsController = (function() {
     function createSettingsModal() {
         if (settingsModal) return;
         
-        debugLog('createSettingsModal - creating modal');
         // Create modal from template
         settingsModal = Utils.createFromTemplate('settings-modal-template');
         document.body.appendChild(settingsModal);
@@ -53,7 +47,6 @@ const SettingsController = (function() {
      * Shows the settings modal
      */
     function showSettingsModal() {
-        debugLog('showSettingsModal - displaying settings modal');
         if (!settingsModal) {
             createSettingsModal();
         }
@@ -70,7 +63,6 @@ const SettingsController = (function() {
      * Hides the settings modal
      */
     function hideSettingsModal() {
-        debugLog('hideSettingsModal - hiding settings modal');
         if (settingsModal) {
             settingsModal.style.display = 'none';
         }
@@ -80,7 +72,6 @@ const SettingsController = (function() {
      * Saves settings from the modal
      */
     function saveSettings() {
-        debugLog('saveSettings - saving settings');
         const streamingEnabled = document.getElementById('streaming-toggle').checked;
         const cotEnabled = document.getElementById('cot-toggle').checked;
         const showThinkingEnabled = document.getElementById('show-thinking-toggle').checked;
@@ -99,7 +90,6 @@ const SettingsController = (function() {
         
         // Save settings to cookie
         Utils.saveSettingsToCookie(settings);
-        debugLog('saveSettings - updated settings:', settings);
         
         // Hide modal
         hideSettingsModal();
@@ -109,7 +99,6 @@ const SettingsController = (function() {
      * Initializes settings from cookies or defaults
      */
     function initSettings() {
-        debugLog('initSettings - initializing settings from cookie');
         const savedSettings = Utils.getSettingsFromCookie();
         if (savedSettings) {
             // Ensure all expected keys are present, merging saved settings over defaults
@@ -133,7 +122,6 @@ const SettingsController = (function() {
         // Apply settings to chat controller
         ChatController.updateSettings(settings);
         
-        debugLog('initSettings - applied settings:', settings);
         // Set up settings button
         document.getElementById('settings-button').addEventListener('click', showSettingsModal);
     }

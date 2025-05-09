@@ -6,11 +6,6 @@
 const App = (function() {
     'use strict';
     
-    // Debug logger for App
-    function debugLog(...args) {
-        console.log('[App]', ...args);
-    }
-
     // Private state
     let loginModal = null;
 
@@ -18,7 +13,6 @@ const App = (function() {
      * Initializes the application
      */
     function init() {
-        debugLog('init - starting application initialization');
         // Initialize UI controller
         UIController.init();
         
@@ -35,7 +29,6 @@ const App = (function() {
         document.getElementById('chat-container').style.display = 'flex';
         
         // Check for saved password
-        debugLog('init - checking for saved password');
         checkPasswordOrPrompt();
     }
 
@@ -43,14 +36,11 @@ const App = (function() {
      * Checks for a saved password or prompts the user
      */
     function checkPasswordOrPrompt() {
-        debugLog('checkPasswordOrPrompt - retrieving saved password');
         const savedPassword = Utils.getPasswordFromCookie();
         
         if (savedPassword) {
-            debugLog('checkPasswordOrPrompt - found saved password, attempting login');
             doLogin(savedPassword);
         } else {
-            debugLog('checkPasswordOrPrompt - no saved password, showing login modal');
             showLoginModal();
         }
     }
@@ -59,7 +49,6 @@ const App = (function() {
      * Creates and shows the login modal
      */
     function showLoginModal() {
-        debugLog('showLoginModal - displaying login modal');
         if (!loginModal) {
             // Create login modal from template
             loginModal = Utils.createFromTemplate('login-modal-template');
@@ -87,7 +76,6 @@ const App = (function() {
      * Handles login form submission
      */
     function handleLogin() {
-        debugLog('handleLogin - user submitted login form');
         const passwordInput = document.getElementById('api-password');
         const rememberCheckbox = document.getElementById('remember-password');
         const password = passwordInput.value.trim();
@@ -101,7 +89,6 @@ const App = (function() {
         const success = ApiService.init(password);
         
         if (success) {
-            debugLog('handleLogin - password correct, login successful');
             // Store remember password setting
             const settings = ChatController.getSettings();
             settings.rememberPassword = rememberCheckbox.checked;
@@ -115,7 +102,6 @@ const App = (function() {
             // Hide the login modal
             loginModal.style.display = 'none';
         } else {
-            debugLog('handleLogin - password incorrect, showing error');
             // Show error message
             document.getElementById('login-error').textContent = 'Invalid password. Please try again.';
             document.getElementById('login-error').style.display = 'block';
@@ -130,11 +116,9 @@ const App = (function() {
      * @param {string} password - The API key password
      */
     function doLogin(password) {
-        debugLog('doLogin - attempting login with saved password');
         const success = ApiService.init(password);
         
         if (!success) {
-            debugLog('doLogin - saved password invalid, clearing and prompting');
             Utils.clearSavedPassword();
             showLoginModal();
         }
@@ -144,16 +128,12 @@ const App = (function() {
      * Logs the user out by clearing saved credentials
      */
     function logOut() {
-        debugLog('logOut - clearing credentials and reloading');
         Utils.clearSavedPassword();
         location.reload();
     }
 
     // Initialize the app when the DOM is ready
-    window.addEventListener('DOMContentLoaded', function() {
-        debugLog('DOMContentLoaded event - calling init');
-        init();
-    });
+    window.addEventListener('DOMContentLoaded', init);
     
     // Public API
     return {

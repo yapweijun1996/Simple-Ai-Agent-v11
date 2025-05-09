@@ -73,7 +73,7 @@ const ApiService = (function() {
                 'Authorization': 'Bearer ' + apiKey 
             },
             body: JSON.stringify(payload)
-        }, 3, 1000, 60000);
+        }, 3, 1000, 10000);
         
         if (!response.ok) {
             const errText = await response.text();
@@ -98,7 +98,7 @@ const ApiService = (function() {
                 'Authorization': 'Bearer ' + apiKey 
             },
             body: JSON.stringify({ model, messages, stream: true })
-        }, 3, 1000, 60000);
+        }, 3, 1000, 10000);
         
         if (!response.ok) {
             const errText = await response.text();
@@ -165,11 +165,11 @@ const ApiService = (function() {
                 };
                 
                 const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`;
-                const response = await Utils.fetchWithRetry(url, {
+                const response = await Utils.fetchWithProxyRetry(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(requestBody)
-                }, 3, 1000, 60000);
+                }, undefined, 3, 1000, 10000);
                 
                 if (!response.ok) {
                     const errText = await response.text();
@@ -208,7 +208,7 @@ const ApiService = (function() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(requestBody)
-        }, 3, 1000, 60000);
+        }, 3, 1000, 10000);
         
         if (!response.ok) {
             const errText = await response.text();
@@ -275,11 +275,11 @@ const ApiService = (function() {
                 }));
                 
                 const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`;
-                const res = await Utils.fetchWithRetry(url, {
+                const res = await Utils.fetchWithProxyRetry(url, {
                     method: 'POST', 
                     headers: { 'Content-Type': 'application/json' }, 
                     body: JSON.stringify({ contents, generationConfig })
-                }, 3, 1000, 60000);
+                }, undefined, 3, 1000, 10000);
                 
                 usageResult = await res.json();
                 return usageResult.usageMetadata?.totalTokenCount || 0;

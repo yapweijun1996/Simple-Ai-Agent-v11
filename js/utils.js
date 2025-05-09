@@ -221,7 +221,6 @@ const Utils = (function() {
 
     async function fetchWithRetry(resource, options = {}, retries = 3, retryDelay = 1000, timeout = 10000) {
         let lastError;
-        let delay = retryDelay;
         for (let attempt = 1; attempt <= retries; attempt++) {
             try {
                 const response = await fetchWithTimeout(resource, options, timeout);
@@ -233,15 +232,8 @@ const Utils = (function() {
             } catch (err) {
                 lastError = err;
                 console.warn(`Fetch attempt ${attempt} failed:`, err);
-                // If request was aborted, do not retry further
-                if (err.name === 'AbortError') {
-                    console.warn('Fetch aborted, stopping retries.');
-                    break;
-                }
                 if (attempt < retries) {
-                    // Exponential backoff before next retry
-                    await new Promise(r => setTimeout(r, delay));
-                    delay *= 2;
+                    await new Promise(r => setTimeout(r, retryDelay));
                 }
             }
         }

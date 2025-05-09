@@ -56,8 +56,9 @@ const ToolsService = (function() {
           const htmlString = await proxy.parseResponse(response);
           const parser = new DOMParser();
           const doc = parser.parseFromString(htmlString, 'text/html');
-          // DuckDuckGo HTML may not use id="links"; select result items directly
-          const items = doc.querySelectorAll('div.result');
+          const container = doc.getElementById('links');
+          if (!container) throw new Error('No results container');
+          const items = container.querySelectorAll('div.result');
           if (!items.length) throw new Error('No results');
 
           const results = [];
