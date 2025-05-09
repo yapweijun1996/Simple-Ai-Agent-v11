@@ -367,8 +367,10 @@ Answer: [your final, concise answer here]
             }
             const toolCall = extractToolCall(fullReply);
             if (toolCall && toolCall.tool) {
+                // Save the JSON call in history so next iteration sees updated context
+                chatHistory.push({ role: 'assistant', content: fullReply });
                 await executeToolCall(toolCall);
-                // continue loop with no new user input
+                // Continue loop with no new user input
                 userInput = '';
                 continue;
             }
