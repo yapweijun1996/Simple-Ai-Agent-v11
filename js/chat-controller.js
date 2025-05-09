@@ -13,6 +13,8 @@ const ChatController = (function() {
     let isThinking = false;
     let lastThinkingContent = '';
     let lastAnswerContent = '';
+    // Track executed tool calls to prevent infinite loops
+    let executedToolCalls = new Set();
 
     // Debug logger for ChatController
     function debugLog(...args) {
@@ -74,6 +76,8 @@ Begin Reasoning Now:
      * @param {Object} initialSettings - Initial settings for the chat
      */
     function init(initialSettings) {
+        // Reset executed tool calls
+        executedToolCalls.clear();
         // Reset and seed chatHistory with system tool instructions
         chatHistory = [{
             role: 'system',
@@ -600,6 +604,14 @@ Answer: [your final, concise answer based on the reasoning above]`;
      * Executes a tool call, injects result into chat, and continues reasoning
      */
     async function processToolCall(call) {
+        // Prevent duplicate tool calls
+        const callKey = JSON.stringify(call);
+        if (executedToolCalls.has(callKey)) {
+            debugLog('Skipping duplicate toolCall:', call);
+            UIController.clearStatus();
+            return;
+        }
+        executedToolCalls.add(callKey);
         const { tool, arguments: args, skipContinue } = call;
         let result;
         // Show status while calling tool
