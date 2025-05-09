@@ -700,73 +700,48 @@ Answer: [your final, concise answer based on the reasoning above]`;
                 } catch (err) {
                     debugLog(`read_url failed for ${args.url}, skipping this URL:`, err);
                     UIController.addMessage('ai', `[read_url] Skipped content from ${args.url} due to an error.`);
-                    // Don't continue this URL; but allow overall processToolCall to finish
                     UIController.clearStatus();
                     return;
                 }
                 const fullText = String(result);
-                const totalLength = fullText.length;
                 const start = (typeof args.start === 'number' && args.start >= 0) ? args.start : 0;
                 const chunkSize = (typeof args.length === 'number' && args.length > 0) ? args.length : 1122;
                 let offset = start;
 
-                // Loop through content in fixed-size chunks until AI says to stop
-                while (true) {
-                    const snippet = fullText.slice(offset, offset + chunkSize);
-                    const hasMore = (offset + chunkSize) < totalLength;
+                // Iterate through text chunks using async generator
+                for await (const snippet of Utils.chunkText(fullText.slice(start), chunkSize)) {
+                    const hasMore = offset + snippet.length < fullText.length;
                     const html = `<div class="tool-result" role="group" aria-label="Read content from ${args.url}"><strong>Read from:</strong> <a href="${args.url}" target="_blank" rel="noopener noreferrer">${args.url}</a><p>${Utils.escapeHtml(snippet)}${hasMore ? '...' : ''}</p></div>`;
                     UIController.addHtmlMessage('ai', html);
                     const plainTextSnippet = `Read content from ${args.url}:\n${snippet}${hasMore ? '...' : ''}`;
                     chatHistory.push({ role: 'assistant', content: plainTextSnippet });
                     debugLog(`[read_url] url=${args.url}, offset=${offset}, snippetLength=${snippet.length}, hasMore=${hasMore}`);
 
-                    // If no more content, break
+                    // If more content remains, ask AI if it needs to continue
                     if (!hasMore) break;
-
-                    // Ask AI if more content should be fetched
                     debugLog(`[read_url] Prompting AI for decision to fetch more (offset=${offset}, length=${chunkSize})`);
-                    const lastUser = chatHistory.filter(m => m.role === 'user').pop().content;
                     const decisionPrompt =
-                        `SNIPPET ONLY:\n${snippet}\n\n` +
-                        `If you need more text from this URL, reply ONLY with YES. ` +
-                        `If no more text is needed, reply ONLY with NO. NOTHING ELSE.`;
+                        `SNIPPET ONLY:\n${snippet}\n\nIf you need more text from this URL, reply ONLY with YES. If no more text is needed, reply ONLY with NO. NOTHING ELSE.`;
                     let shouldFetchMore = false;
                     try {
                         const selectedModel = SettingsController.getSettings().selectedModel;
                         if (selectedModel.startsWith('gpt')) {
-                            // OpenAI decision
                             const decisionRes = await ApiService.sendOpenAIRequest(selectedModel, [
                                 { role: 'system', content: 'You decide whether additional URL content is needed.' },
                                 { role: 'user', content: decisionPrompt }
                             ]);
-                            const decisionText = decisionRes.choices[0].message.content.trim().toLowerCase();
-                            debugLog(`[read_url] AI decision response (OpenAI): "${decisionText}"`);
-                            shouldFetchMore = decisionText.startsWith('yes');
+                            shouldFetchMore = decisionRes.choices[0].message.content.trim().toLowerCase().startsWith('yes');
                         } else {
-                            // Gemini/Gemma decision (minimal context)
                             const session = ApiService.createGeminiSession(selectedModel);
-                            // Provide only the decision prompt, no full chat history
-                            const decisionContext = [ { role: 'user', content: decisionPrompt } ];
-                            const result = await session.sendMessage('', decisionContext);
-                            let decisionText = '';
-                            const candidate = result.candidates && result.candidates[0];
-                            if (candidate) {
-                                if (candidate.content.parts) {
-                                    decisionText = candidate.content.parts.map(p => p.text).join(' ');
-                                } else if (candidate.content.text) {
-                                    decisionText = candidate.content.text;
-                                }
-                            }
-                            decisionText = decisionText.trim().toLowerCase();
-                            debugLog(`[read_url] AI decision response (Gemini): "${decisionText}"`);
-                            shouldFetchMore = decisionText.startsWith('yes');
+                            const result = await session.sendMessage('', [{ role: 'user', content: decisionPrompt }]);
+                            const text = result.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || result.candidates?.[0]?.content?.text || '';
+                            shouldFetchMore = text.trim().toLowerCase().startsWith('yes');
                         }
                     } catch (err) {
                         debugLog('Decision fetch error:', err);
                     }
                     if (!shouldFetchMore) break;
-                    // Advance offset for next chunk
-                    offset += chunkSize;
+                    offset += snippet.length;
                 }
             } else if (tool === 'instant_answer') {
                 UIController.showStatus(`Retrieving instant answer for "${args.query}"...`);

@@ -295,6 +295,20 @@ const Utils = (function() {
         throw lastError;
     }
 
+    /**
+     * Splits text into fixed-size chunks.
+     * @param {string} text - The text to chunk.
+     * @param {number} [size=1122] - The chunk size.
+     * @returns {AsyncGenerator<string>}
+     */
+    async function* chunkText(text, size = 1122) {
+        let offset = 0;
+        while (offset < text.length) {
+            yield text.slice(offset, offset + size);
+            offset += size;
+        }
+    }
+
     // Public API
     return {
         decrypt,
@@ -313,6 +327,7 @@ const Utils = (function() {
         escapeHtml,
         fetchWithTimeout,
         fetchWithRetry,
-        fetchWithProxyRetry
+        fetchWithProxyRetry,
+        chunkText
     };
 })(); 
