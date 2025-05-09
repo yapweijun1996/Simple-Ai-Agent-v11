@@ -753,10 +753,10 @@ Answer: [your final, concise answer based on the reasoning above]`;
                 const lastUserMsg = chatHistory.filter(m => m.role === 'user').pop()?.content || '';
                 const nextMsg = settings.enableCoT ? enhanceWithCoT(lastUserMsg) : lastUserMsg;
                 if (selectedModel.startsWith('gpt')) {
-                    // Push user message and continue CoT
-                    chatHistory.push({ role: 'user', content: nextMsg });
-                    await handleOpenAIMessage(selectedModel, nextMsg);
+                    // Continue Chain-of-Thought: use empty prompt to maintain system and history context
+                    await handleOpenAIMessage(selectedModel, '');
                 } else {
+                    // Continue Gemini with enhanced user message
                     await handleGeminiMessage(selectedModel, nextMsg);
                 }
             } catch (err) {
