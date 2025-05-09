@@ -363,7 +363,7 @@ Answer: [your final, concise answer here]
                 if (res.error) throw new Error(res.error.message);
                 totalTokens += res.usage?.total_tokens || 0;
                 fullReply = res.choices[0].message.content;
-                UIController.addMessage('ai', fullReply);
+//                UIController.addMessage('ai', fullReply);
             }
             const toolCall = extractToolCall(fullReply);
             if (toolCall && toolCall.tool) {
