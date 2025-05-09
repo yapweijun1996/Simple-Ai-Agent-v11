@@ -646,13 +646,94 @@ Answer: [your final, concise answer here]
                 executedToolCalls.add(callKey);
                 let result;
 
-                // Tool execution logic (unchanged) but without early returns or clearStatus calls
                 if (tool === 'web_search') {
-                    // ... existing web_search logic ...
+                    UIController.showStatus(`Searching web for "${args.query}"...`);
+                    try {
+                        const items = await ToolsService.webSearch(args.query);
+                        const htmlItems = items.map(r =>
+                            `<li><a href="${r.url}" target="_blank" rel="noopener noreferrer">${r.title}</a><br><small>${r.url}</small><p>${Utils.escapeHtml(r.snippet)}</p></li>`
+                        ).join('');
+                        const html = `<div class="tool-result" role="group" aria-label="Search results for ${args.query}"><strong>Search results for “${args.query}” (${items.length}):</strong><ul>${htmlItems}</ul></div>`;
+                        UIController.addHtmlMessage('ai', html);
+                        const plainTextResults = items.map((r, i) => `${i+1}. ${r.title} (${r.url}) - ${r.snippet}`).join('\n');
+                        chatHistory.push({ role: 'assistant', content: `Search results for "${args.query}" (${items.length}):\n${plainTextResults}` });
+
+                        // Attempt read_url for each item; skip if it fails
+                        for (const item of items) {
+                            try {
+                                await processToolCall({ tool: 'read_url', arguments: { url: item.url, start: 0, length: 1122 }, skipContinue: true });
+                            } catch (err) {
+                                debugLog(`Skipping read_url for ${item.url} due to error:`, err);
+                            }
+                        }
+                    } catch (err) {
+                        console.warn('Web search failed:', err);
+                        const fallback = `Unable to retrieve search results for "${args.query}". Proceeding with available knowledge.`;
+                        UIController.addMessage('ai', fallback);
+                        chatHistory.push({ role: 'assistant', content: fallback });
+                    }
+
                 } else if (tool === 'read_url') {
-                    // ... existing read_url logic ...
+                    UIController.showStatus(`Reading content from ${args.url}...`);
+                    let pageText;
+                    try {
+                        pageText = await ToolsService.readUrl(args.url);
+                    } catch (err) {
+                        debugLog(`read_url failed for ${args.url}, skipping this URL:`, err);
+                        UIController.addMessage('ai', `[read_url] Skipped content from ${args.url} due to an error.`);
+                        pageText = null;
+                    }
+                    if (pageText) {
+                        const fullText = String(pageText);
+                        const totalLength = fullText.length;
+                        const chunkSize = (typeof args.length === 'number' && args.length > 0) ? args.length : 1122;
+                        for (let offset = (typeof args.start === 'number' && args.start >= 0 ? args.start : 0); offset < totalLength; offset += chunkSize) {
+                            const snippet = fullText.slice(offset, offset + chunkSize);
+                            const hasMore = offset + chunkSize < totalLength;
+                            const html = `<div class="tool-result" role="group" aria-label="Read content from ${args.url}"><strong>Read from:</strong> <a href="${args.url}" target="_blank" rel="noopener noreferrer">${args.url}</a><p>${Utils.escapeHtml(snippet)}${hasMore ? '...' : ''}</p></div>`;
+                            UIController.addHtmlMessage('ai', html);
+                            chatHistory.push({ role: 'assistant', content: `Read content from ${args.url}:\n${snippet}${hasMore ? '...' : ''}` });
+                            debugLog(`[read_url] url=${args.url}, offset=${offset}, snippetLength=${snippet.length}, hasMore=${hasMore}`);
+                            // If no more content, break
+                            if (!hasMore) break;
+                            // Ask AI decision
+                            const decisionPrompt =
+                                `SNIPPET ONLY:\n${snippet}\n\nIf you need more text from this URL, reply ONLY with YES. If no more text is needed, reply ONLY with NO. NOTHING ELSE.`;
+                            let shouldFetchMore = false;
+                            try {
+                                const selectedModel = SettingsController.getSettings().selectedModel;
+                                if (selectedModel.startsWith('gpt')) {
+                                    const decisionRes = await ApiService.sendOpenAIRequest(selectedModel, [
+                                        { role: 'system', content: 'You decide whether additional URL content is needed.' },
+                                        { role: 'user', content: decisionPrompt }
+                                    ]);
+                                    shouldFetchMore = decisionRes.choices[0].message.content.trim().toLowerCase().startsWith('yes');
+                                } else {
+                                    const session = ApiService.createGeminiSession(selectedModel);
+                                    const decisionResult = await session.sendMessage('', [{ role: 'user', content: decisionPrompt }]);
+                                    const candidate = decisionResult.candidates && decisionResult.candidates[0];
+                                    const decisionText = candidate?.content?.parts ? candidate.content.parts.map(p => p.text).join('') : candidate.content?.text || '';
+                                    shouldFetchMore = decisionText.trim().toLowerCase().startsWith('yes');
+                                }
+                            } catch (err) {
+                                debugLog('Decision fetch error:', err);
+                            }
+                            if (!shouldFetchMore) break;
+                        }
+                    }
+
                 } else if (tool === 'instant_answer') {
-                    // ... existing instant_answer logic ...
+                    UIController.showStatus(`Retrieving instant answer for "${args.query}"...`);
+                    try {
+                        const ia = await ToolsService.instantAnswer(args.query);
+                        const text = JSON.stringify(ia, null, 2);
+                        UIController.addMessage('ai', text);
+                        chatHistory.push({ role: 'assistant', content: text });
+                    } catch (err) {
+                        debugLog('instantAnswer failed:', err);
+                        UIController.addMessage('ai', `[instant_answer] Error retrieving instant answer.`);
+                    }
+
                 } else {
                     throw new Error(`Unknown tool: ${tool}`);
                 }
@@ -660,7 +741,6 @@ Answer: [your final, concise answer here]
         } catch (err) {
             debugLog('Error during tool execution:', err);
         } finally {
-            // Always clear status and continue the chain
             UIController.clearStatus();
             if (!skipContinue) {
                 try {
