@@ -756,13 +756,12 @@ Answer: [your final, concise answer here]
                     // Reuse last user message for continuation
                     const lastUserMsg = chatHistory.filter(m => m.role === 'user').pop()?.content || '';
                     const nextMsg = settings.enableCoT ? enhanceWithCoT(lastUserMsg) : lastUserMsg;
+                    // Push the user message into history for both GPT and Gemini
+                    chatHistory.push({ role: 'user', content: nextMsg });
                     if (selectedModel.startsWith('gpt')) {
-                        // Push the user message into history for GPT
-                        chatHistory.push({ role: 'user', content: nextMsg });
                         debugLog('Continuing conversation with GPT:', nextMsg);
                         await handleOpenAIMessage(selectedModel, nextMsg);
                     } else {
-                        // handleGeminiMessage will push the user message
                         debugLog('Continuing conversation with Gemini:', nextMsg);
                         await handleGeminiMessage(selectedModel, nextMsg);
                     }
