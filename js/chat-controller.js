@@ -610,10 +610,14 @@ Answer: [your final, concise answer based on the reasoning above]`;
                 const plainTextResults = items.map((r, i) => `${i+1}. ${r.title} (${r.url}) - ${r.snippet}`).join('\n');
                 chatHistory.push({ role: 'assistant', content: `Search results for "${args.query}" (${items.length}):\n${plainTextResults}` });
 
-                // Automatically trigger read_url logic without restarting COT
+                // Attempt read_url for each item; skip if it fails
                 for (const item of items) {
-                    // Trigger read_url logic without restarting COT
-                    await processToolCall({ tool: 'read_url', arguments: { url: item.url, start: 0, length: 1122 }, skipContinue: true });
+                    // Attempt read_url for each item; skip if it fails
+                    try {
+                        await processToolCall({ tool: 'read_url', arguments: { url: item.url, start: 0, length: 1122 }, skipContinue: true });
+                    } catch (err) {
+                        debugLog(`Skipping read_url for ${item.url} due to error:`, err);
+                    }
                 }
             } catch (err) {
                 console.warn(`Web search failed:`, err);
@@ -632,8 +636,17 @@ Answer: [your final, concise answer based on the reasoning above]`;
             }
         } else if (tool === 'read_url') {
             UIController.showStatus(`Reading content from ${args.url}...`);
-            // Fetch full page text
-            result = await ToolsService.readUrl(args.url);
+            // Fetch full page text; skip URL on failure
+            let result;
+            try {
+                result = await ToolsService.readUrl(args.url);
+            } catch (err) {
+                debugLog(`read_url failed for ${args.url}, skipping this URL:`, err);
+                UIController.addMessage('ai', `[read_url] Skipped content from ${args.url} due to an error.`);
+                // Don't continue this URL; but allow overall processToolCall to finish
+                UIController.clearStatus();
+                return;
+            }
             const fullText = String(result);
             const totalLength = fullText.length;
             const start = (typeof args.start === 'number' && args.start >= 0) ? args.start : 0;
