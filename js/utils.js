@@ -288,6 +288,15 @@ const Utils = (function() {
         throw lastError;
     }
 
+    /**
+     * Roughly estimate the number of tokens in a string (for OpenAI models, 1 token ≈ 4 chars)
+     * @param {string} text
+     * @returns {number}
+     */
+    function estimateTokens(text) {
+        return Math.ceil((text || '').length / 4);
+    }
+
     // Public API
     return {
         decrypt,
@@ -306,6 +315,7 @@ const Utils = (function() {
         escapeHtml,
         fetchWithTimeout,
         fetchWithRetry,
-        fetchWithProxyRetry
+        fetchWithProxyRetry,
+        estimateTokens
     };
 })(); 
