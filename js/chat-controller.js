@@ -369,7 +369,7 @@ Answer: [your final, concise answer here]
             if (toolCall && toolCall.tool) {
                 // Save the JSON call in history so next iteration sees updated context
                 chatHistory.push({ role: 'assistant', content: fullReply });
-                await executeToolCall(toolCall);
+                await processToolCall(toolCall);
                 // Continue loop with no new user input
                 userInput = '';
                 continue;
