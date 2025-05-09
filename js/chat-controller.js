@@ -16,14 +16,23 @@ const ChatController = (function() {
 
     // Add helper to robustly extract JSON tool calls (handles markdown fences)
     function extractToolCall(text) {
-        const jsonMatch = text.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) return null;
-        try {
-            return JSON.parse(jsonMatch[0]);
-        } catch (err) {
-            console.warn('Tool JSON parse error:', err, 'from', jsonMatch[0]);
-            return null;
+        // Extract all JSON-like blocks and parse for tool calls
+        const jsonMatches = text.match(/\{[\s\S]*?\}/g);
+        if (!jsonMatches) return null;
+        for (let match of jsonMatches) {
+            try {
+                // Remove markdown fences and normalize quotes
+                let jsonStr = match.replace(/```json|```/g, '').trim();
+                jsonStr = jsonStr.replace(/'/g, '"');
+                const obj = JSON.parse(jsonStr);
+                if (obj.tool && obj.arguments) {
+                    return obj;
+                }
+            } catch (err) {
+                // Ignore parse errors and try next
+            }
         }
+        return null;
     }
 
     const cotPreamble = `**Chain of Thought Instructions:**
@@ -44,22 +53,25 @@ Begin Reasoning Now:
         // Reset and seed chatHistory with system tool instructions
         chatHistory = [{
             role: 'system',
-            content: `You are an AI assistant with access to three tools for external information and you may call them multiple times to retrieve additional data:
-1. web_search(query) → returns a JSON array of search results [{title, url, snippet}, …]
-2. read_url(url[, start, length]) → returns the text content of a web page from position 'start' (default 0) up to 'length' characters (default 1122)
-3. instant_answer(query) → returns a JSON object from DuckDuckGo's Instant Answer API for quick facts, definitions, and summaries (no proxies needed)
+            content: `You are an AI assistant with access to three external tools. Use them to gather information when needed.
 
-For any question requiring up-to-date facts, statistics, or detailed content, choose the appropriate tool above. Use read_url to fetch initial snippets (default 1122 chars), then evaluate each snippet for relevance.
-If a snippet ends with an ellipsis ("..."), always determine whether fetching more text will improve your answer. If it will, output a new read_url tool call JSON with the same url, start at your previous offset, and length set to 5000 to retrieve the next segment. Repeat this process—issuing successive read_url calls—until the snippet no longer ends with "..." or you judge that additional content is not valuable. Only then continue reasoning toward your final answer.
+VERY IMPORTANT:
+- When calling a tool, output ONLY a JSON object and NOTHING ELSE, EXACTLY in this format:
+  {"tool":"web_search","arguments":{"query":"your query"}}
+  {"tool":"read_url","arguments":{"url":"https://example.com","start":0,"length":1122}}
+  {"tool":"instant_answer","arguments":{"query":"your query"}}
+- Do NOT wrap the JSON in markdown or add any extra text, explanations, or formatting.
+- Wait for the tool result before continuing your reasoning or answer.
+- If you do not follow these instructions, your output will not be processed.
 
-When calling a tool, output EXACTLY a JSON object and nothing else, in this format:
-{"tool":"web_search","arguments":{"query":"your query"}}
-{"tool":"read_url","arguments":{"url":"https://example.com","start":0,"length":1122}}
-or
-{"tool":"instant_answer","arguments":{"query":"your query"}}
+TOOLS:
+1. web_search(query) → Returns an array of search results [{title, url, snippet}, …].
+2. read_url(url[, start, length]) → Returns text content from the specified URL slice.
+3. instant_answer(query) → Returns a JSON object from DuckDuckGo Instant Answer API.
 
-Wait for the tool result to be provided before continuing your explanation or final answer.
-After receiving the tool result, continue thinking step-by-step and then provide your answer.`
+For questions requiring up-to-date information, choose the appropriate tool and fetch the necessary data. Only after gathering all relevant information should you proceed to answer.
+
+Begin your interaction.`
         }];
         if (initialSettings) {
             settings = { ...settings, ...initialSettings };
