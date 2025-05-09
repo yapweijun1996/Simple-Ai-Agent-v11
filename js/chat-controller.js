@@ -834,7 +834,7 @@ Answer: [your final, concise answer based on the reasoning above]`;
     }
 
     // Summarization logic (recursive, context-aware)
-    async function summarizeSnippets(snippets = null) {
+    async function summarizeSnippets(snippets = null, round = 1) {
         if (!snippets) snippets = readSnippets;
         if (!snippets.length) return;
         const selectedModel = SettingsController.getSettings().selectedModel;
@@ -842,9 +842,9 @@ Answer: [your final, concise answer based on the reasoning above]`;
         const SUMMARIZATION_TIMEOUT = 88000; // 88 seconds
         // If only one snippet, just summarize it directly
         if (snippets.length === 1) {
-            const prompt = `Summarize the following information extracted from web pages:\n\n${snippets[0]}`;
+            const prompt = `Summarize the following information extracted from web pages (be as concise as possible):\n\n${snippets[0]}`;
             let aiReply = '';
-            UIController.showSpinner('Summarizing information...');
+            UIController.showSpinner(`Round ${round}: Summarizing information...`);
             try {
                 const res = await ApiService.sendOpenAIRequest(selectedModel, [
                     { role: 'system', content: 'You are an assistant that synthesizes information from multiple sources.' },
@@ -868,8 +868,8 @@ Answer: [your final, concise answer based on the reasoning above]`;
         try {
             for (let i = 0; i < totalBatches; i++) {
                 const batch = batches[i];
-                UIController.showSpinner(`Summarizing batch ${i + 1} of ${totalBatches}...`);
-                const batchPrompt = `Summarize the following information extracted from web pages:\n\n${batch.join('\n---\n')}`;
+                UIController.showSpinner(`Round ${round}: Summarizing batch ${i + 1} of ${totalBatches}...`);
+                const batchPrompt = `Summarize the following information extracted from web pages (be as concise as possible):\n\n${batch.join('\n---\n')}`;
                 const res = await ApiService.sendOpenAIRequest(selectedModel, [
                     { role: 'system', content: 'You are an assistant that synthesizes information from multiple sources.' },
                     { role: 'user', content: batchPrompt }
@@ -879,10 +879,10 @@ Answer: [your final, concise answer based on the reasoning above]`;
             // If the combined summaries are still too long, recursively summarize
             const combined = batchSummaries.join('\n---\n');
             if (combined.length > MAX_PROMPT_LENGTH) {
-                UIController.showSpinner('Combining summaries...');
-                await summarizeSnippets(batchSummaries);
+                UIController.showSpinner(`Round ${round + 1}: Combining summaries...`);
+                await summarizeSnippets(batchSummaries, round + 1);
             } else {
-                UIController.showSpinner('Finalizing summary...');
+                UIController.showSpinner(`Round ${round}: Finalizing summary...`);
                 UIController.addMessage('ai', `Summary:\n${combined}`);
             }
         } catch (err) {
