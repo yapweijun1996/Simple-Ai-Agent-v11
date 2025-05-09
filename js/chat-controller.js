@@ -345,145 +345,41 @@ Answer: [your final, concise answer here]
      * @param {string} model - The OpenAI model to use
      * @param {string} message - The user message
      */
-    async function handleOpenAIMessage(model, message) {
-        if (settings.streaming) {
-            // Show status for streaming response
-            UIController.showStatus('Streaming response...');
-            // Streaming approach
-            const aiMsgElement = UIController.createEmptyAIMessage();
-            let streamedResponse = '';
-            
-            try {
-                // Start thinking indicator if CoT is enabled
-                if (settings.enableCoT) {
-                    isThinking = true;
-                    UIController.updateMessageContent(aiMsgElement, '🤔 Thinking...');
-                }
-                
-                // Always inject system tool-call instructions at start of context
-                const systemMsg = chatHistory[0];
-                // Keep only the last 10 messages to maintain context window
-                const recent = chatHistory.slice(-10);
-                const messagesForOpenAI = [systemMsg, ...recent];
-                const fullReply = await ApiService.streamOpenAIRequest(
-                    model,
-                    messagesForOpenAI,
-                    (chunk, fullText) => {
-                        streamedResponse = fullText;
-                        
-                        if (settings.enableCoT) {
-                            // Process the streamed response for CoT
-                            const processed = processPartialCoTResponse(fullText);
-                            
-                            // Only show "Thinking..." if we're still waiting
-                            if (isThinking && fullText.includes('Answer:')) {
-                                isThinking = false;
-                            }
-                            
-                            // Format according to current stage and settings
-                            const displayText = formatResponseForDisplay(processed);
-                            UIController.updateMessageContent(aiMsgElement, displayText);
-                        } else {
-                            UIController.updateMessageContent(aiMsgElement, fullText);
-                        }
-                    }
-                );
-                
-                // Intercept JSON tool call in streaming mode
-                const toolCall = extractToolCall(fullReply);
-                if (toolCall && toolCall.tool && toolCall.arguments) {
-                    await processToolCall(toolCall);
-                    return;
-                }
-                
-                // Process response for CoT if enabled
-                if (settings.enableCoT) {
-                    const processed = processCoTResponse(fullReply);
-                    
-                    // Add thinking to debug console if available
-                    if (processed.thinking) {
-                        debugLog('AI Thinking:', processed.thinking);
-                    }
-                    
-                    // Update UI with appropriate content based on settings
-                    const displayText = formatResponseForDisplay(processed);
-                    UIController.updateMessageContent(aiMsgElement, displayText);
-                    
-                    // Add full response to chat history
-                    chatHistory.push({ role: 'assistant', content: fullReply });
-                } else {
-                    // Add to chat history after completed
-                    chatHistory.push({ role: 'assistant', content: fullReply });
-                }
-                
-                // Get token usage
-                const tokenCount = await ApiService.getTokenUsage(model, chatHistory);
-                if (tokenCount) {
-                    totalTokens += tokenCount;
-                }
-            } catch (err) {
-                if (err.name === 'AbortError') {
-                    UIController.updateMessageContent(aiMsgElement, 'Error: Request timed out. Please try again.');
-                    return;
-                }
-                UIController.updateMessageContent(aiMsgElement, 'Error: ' + err.message);
-                throw err;
-            } finally {
-                isThinking = false;
+    async function handleOpenAIMessage(model, userInput) {
+        // Add user message to history and UI
+        chatHistory.push({ role: 'user', content: userInput });
+        let fullReply = '';
+        const systemMsg = chatHistory[0];
+        do {
+            const recent = chatHistory.slice(-10);
+            const messages = [systemMsg, ...recent];
+            if (settings.streaming) {
+                fullReply = await ApiService.streamOpenAIRequest(model, messages, (chunk, all) => {
+                    fullReply = all;
+                    UIController.updateMessageContent(UIController.createEmptyAIMessage(), all);
+                });
+            } else {
+                const res = await ApiService.sendOpenAIRequest(model, messages);
+                if (res.error) throw new Error(res.error.message);
+                totalTokens += res.usage?.total_tokens || 0;
+                fullReply = res.choices[0].message.content;
+                UIController.addMessage('ai', fullReply);
             }
-        } else {
-            // Show status for non-streaming response
-            UIController.showStatus('Waiting for AI response...');
-            // Non-streaming approach
-            try {
-                const systemMsgNS = chatHistory[0];
-                // Trim to last 10 messages
-                const recentNS = chatHistory.slice(-10);
-                const messagesForOpenAINS = [systemMsgNS, ...recentNS];
-                const result = await ApiService.sendOpenAIRequest(model, messagesForOpenAINS);
-                
-                if (result.error) {
-                    throw new Error(result.error.message);
-                }
-                
-                // Update token usage
-                if (result.usage && result.usage.total_tokens) {
-                    totalTokens += result.usage.total_tokens;
-                }
-                
-                // Process response
-                const reply = result.choices[0].message.content;
-                debugLog("GPT non-streaming reply:", reply);
+            const toolCall = extractToolCall(fullReply);
+            if (toolCall && toolCall.tool) {
+                await executeToolCall(toolCall);
+                // continue loop with no new user input
+                userInput = '';
+                continue;
+            }
+            break;
+        } while (true);
 
-                // Intercept tool call JSON
-                const toolCall = extractToolCall(reply);
-                if (toolCall && toolCall.tool && toolCall.arguments) {
-                    await processToolCall(toolCall);
-                    return;
-                }
-                
-                if (settings.enableCoT) {
-                    const processed = processCoTResponse(reply);
-                    
-                    // Add thinking to debug console if available
-                    if (processed.thinking) {
-                        debugLog('AI Thinking:', processed.thinking);
-                    }
-                    
-                    // Add the full response to chat history
-                    chatHistory.push({ role: 'assistant', content: reply });
-                    
-                    // Show appropriate content in the UI based on settings
-                    const displayText = formatResponseForDisplay(processed);
-                    UIController.addMessage('ai', displayText);
-                } else {
-                    chatHistory.push({ role: 'assistant', content: reply });
-                    UIController.addMessage('ai', reply);
-                }
-            } catch (err) {
-                throw err;
-            }
-        }
+        // Final processing of fullReply
+        const processed = settings.enableCoT ? processCoTResponse(fullReply) : { answer: fullReply };
+        const displayText = settings.enableCoT ? formatResponseForDisplay(processed) : fullReply;
+        UIController.addMessage('ai', displayText);
+        chatHistory.push({ role: 'assistant', content: fullReply });
     }
 
     /**
@@ -750,15 +646,15 @@ Answer: [your final, concise answer here]
                 hasResumed = true;
                 try {
                     const selectedModel = SettingsController.getSettings().selectedModel;
-                    // Reuse last user message for continuation
-                    const lastUserMsg = chatHistory.filter(m => m.role === 'user').pop()?.content || '';
-                    const nextMsg = settings.enableCoT ? enhanceWithCoT(lastUserMsg) : lastUserMsg;
-                    // Push the user message into history for both GPT and Gemini
-                    chatHistory.push({ role: 'user', content: nextMsg });
                     if (selectedModel.startsWith('gpt')) {
-                        debugLog('Continuing conversation with GPT:', nextMsg);
-                        await handleOpenAIMessage(selectedModel, nextMsg);
+                        debugLog('Continuing conversation with GPT');
+                        // Resume GPT with existing context (tool results in chatHistory)
+                        await handleOpenAIMessage(selectedModel, '');
                     } else {
+                        // For Gemini, push next user prompt for continuation
+                        const lastUserMsg = chatHistory.filter(m => m.role === 'user').pop()?.content || '';
+                        const nextMsg = settings.enableCoT ? enhanceWithCoT(lastUserMsg) : lastUserMsg;
+                        chatHistory.push({ role: 'user', content: nextMsg });
                         debugLog('Continuing conversation with Gemini:', nextMsg);
                         await handleGeminiMessage(selectedModel, nextMsg);
                     }
@@ -783,6 +679,47 @@ Answer: [your final, concise answer here]
      */
     function getTotalTokens() {
         return totalTokens;
+    }
+
+    // Add a function to execute tool calls without recursion
+    async function executeToolCall(call) {
+        const callKey = JSON.stringify(call);
+        if (executedToolCalls.has(callKey)) {
+            debugLog('Skipping duplicate toolCall:', call);
+            UIController.clearStatus();
+            return;
+        }
+        executedToolCalls.add(callKey);
+        UIController.showStatus(`Executing tool: ${call.tool}`);
+        try {
+            if (call.tool === 'web_search') {
+                const items = await ToolsService.webSearch(call.arguments.query);
+                const htmlItems = items.map(r =>
+                    `<li><a href="${r.url}" target="_blank" rel="noopener">${r.title}</a><br><small>${r.url}</small><p>${Utils.escapeHtml(r.snippet)}</p></li>`
+                ).join('');
+                UIController.addHtmlMessage('ai', `<ul>${htmlItems}</ul>`);
+                const plainText = items.map((r,i)=>`${i+1}. ${r.title} (${r.url}) - ${r.snippet}`).join('\n');
+                chatHistory.push({role:'assistant', content: plainText });
+                // optionally initiate read_url calls here
+            } else if (call.tool === 'read_url') {
+                const text = await ToolsService.readUrl(call.arguments.url);
+                const snippet = String(text).slice(call.arguments.start || 0, (call.arguments.start||0) + (call.arguments.length||1000));
+                UIController.addHtmlMessage('ai', `<p>${Utils.escapeHtml(snippet)}</p>`);
+                chatHistory.push({ role:'assistant', content: snippet });
+            } else if (call.tool === 'instant_answer') {
+                const ia = await ToolsService.instantAnswer(call.arguments.query);
+                const jsonText = JSON.stringify(ia, null, 2);
+                UIController.addMessage('ai', jsonText);
+                chatHistory.push({ role:'assistant', content: jsonText });
+            } else {
+                UIController.addMessage('ai', `Unknown tool: ${call.tool}`);
+            }
+        } catch (err) {
+            debugLog('Error during tool execution:', err);
+            UIController.addMessage('ai', `Error executing tool ${call.tool}: ${err.message}`);
+        } finally {
+            UIController.clearStatus();
+        }
     }
 
     // Public API
