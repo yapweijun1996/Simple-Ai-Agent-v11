@@ -9,8 +9,8 @@ const SettingsController = (function() {
     // Private state
     let settingsModal = null;
     let settings = {
-        streaming: true,
-        enableCoT: false,
+        streaming: false, // Default: unchecked
+        enableCoT: true,  // Default: checked
         showThinking: true,
         selectedModel: 'gpt-4.1-mini' // Default model
     };
@@ -103,8 +103,8 @@ const SettingsController = (function() {
         if (savedSettings) {
             // Ensure all expected keys are present, merging saved settings over defaults
             settings = { 
-                streaming: true, // Default
-                enableCoT: false, // Default
+                streaming: false, // Default: unchecked
+                enableCoT: true,  // Default: checked
                 showThinking: true, // Default
                 selectedModel: 'gpt-4.1-mini', // Default
                 ...savedSettings // Overwrite with saved values if they exist
@@ -112,8 +112,8 @@ const SettingsController = (function() {
         } else {
              // If no cookie, ensure defaults are set (redundant but safe)
              settings = {
-                streaming: true,
-                enableCoT: false,
+                streaming: false, // Default: unchecked
+                enableCoT: true,  // Default: checked
                 showThinking: true,
                 selectedModel: 'gpt-4.1-mini'
              };
