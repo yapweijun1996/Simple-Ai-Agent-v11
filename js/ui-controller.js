@@ -299,6 +299,57 @@ const UIController = (function() {
         }
     }
 
+    /**
+     * Adds a search result to the chat window with a 'Read More' button
+     * @param {Object} result - {title, url, snippet}
+     * @param {Function} onReadMore - Callback when 'Read More' is clicked
+     */
+    function addSearchResult(result, onReadMore) {
+        const chatWindow = document.getElementById('chat-window');
+        const article = document.createElement('article');
+        article.className = 'chat-app__message ai-message search-result';
+        article.innerHTML = `
+            <div class="chat-app__message-content">
+                <strong><a href="${result.url}" target="_blank" rel="noopener noreferrer">${Utils.escapeHtml(result.title)}</a></strong><br>
+                <small>${Utils.escapeHtml(result.url)}</small>
+                <p>${Utils.escapeHtml(result.snippet)}</p>
+                <button class="read-more-btn">Read More</button>
+            </div>
+        `;
+        const btn = article.querySelector('.read-more-btn');
+        btn.addEventListener('click', () => onReadMore(result.url));
+        chatWindow.appendChild(article);
+        article.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }
+
+    /**
+     * Adds a read_url result to the chat window, with optional 'Read More' if more content is available
+     * @param {string} url
+     * @param {string} snippet
+     * @param {boolean} hasMore
+     */
+    function addReadResult(url, snippet, hasMore) {
+        const chatWindow = document.getElementById('chat-window');
+        const article = document.createElement('article');
+        article.className = 'chat-app__message ai-message read-result';
+        article.innerHTML = `
+            <div class="chat-app__message-content">
+                <strong>Read from: <a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a></strong>
+                <p>${Utils.escapeHtml(snippet)}${hasMore ? '...' : ''}</p>
+                ${hasMore ? '<button class="read-more-btn">Read More</button>' : ''}
+            </div>
+        `;
+        if (hasMore) {
+            const btn = article.querySelector('.read-more-btn');
+            btn.addEventListener('click', () => {
+                // Fetch next chunk (could be improved to track offset)
+                ChatController.processToolCall({ tool: 'read_url', arguments: { url, start: snippet.length, length: 2000 } });
+            });
+        }
+        chatWindow.appendChild(article);
+        article.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }
+
     // Public API
     return {
         init,
@@ -311,6 +362,8 @@ const UIController = (function() {
         createEmptyAIMessage,
         showStatus,
         clearStatus,
+        addSearchResult,
+        addReadResult,
         /**
          * Adds a chat bubble with raw HTML content (for tool results)
          * @param {string} sender - 'user' or 'ai'

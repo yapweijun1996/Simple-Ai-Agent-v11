@@ -32,6 +32,9 @@ const ToolsService = (function() {
       { name: 'FinalFallback',     formatUrl: url => url,                                                                parseResponse: async res => res.text() }
     ];
 
+    // Proxy health tracking
+    const proxyHealth = new Map(proxies.map(p => [p.name, 1]));
+
     function getFinalUrl(rawUrl) {
       try {
         const parsed = new URL(rawUrl);
@@ -43,13 +46,17 @@ const ToolsService = (function() {
     }
 
     /**
-     * Performs a DuckDuckGo HTML search via proxies.
+     * Performs a DuckDuckGo HTML search via proxies, streams results as found.
      * @param {string} query
+     * @param {function} onResult - Callback for each result as it's found
      * @returns {Promise<Array<{title:string,url:string,snippet:string}>>}
      */
-    async function webSearch(query) {
+    async function webSearch(query, onResult) {
       const ddgUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-      for (const proxy of proxies) {
+      // Sort proxies by health score
+      const sortedProxies = proxies.slice().sort((a, b) => (proxyHealth.get(b.name) || 0) - (proxyHealth.get(a.name) || 0));
+      let partialResults = [];
+      for (const proxy of sortedProxies) {
         try {
           const response = await fetch(proxy.formatUrl(ddgUrl));
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -60,7 +67,6 @@ const ToolsService = (function() {
           if (!container) throw new Error('No results container');
           const items = container.querySelectorAll('div.result');
           if (!items.length) throw new Error('No results');
-
           const results = [];
           items.forEach(item => {
             const anchor = item.querySelector('a.result__a');
@@ -69,11 +75,20 @@ const ToolsService = (function() {
             const title = anchor.textContent.trim();
             const snippetElem = item.querySelector('a.result__snippet, div.result__snippet');
             const snippet = snippetElem ? snippetElem.textContent.trim() : '';
-            results.push({ title, url: href, snippet });
+            const result = { title, url: href, snippet };
+            results.push(result);
+            if (onResult) onResult(result); // Stream to UI
           });
+          proxyHealth.set(proxy.name, (proxyHealth.get(proxy.name) || 1) + 2); // reward
           return results;
         } catch (err) {
-          console.warn(`Proxy ${proxy.name} failed: ${err.message}`);
+          proxyHealth.set(proxy.name, (proxyHealth.get(proxy.name) || 1) - 2); // penalize
+          if (partialResults.length) {
+            // If we have some results, return them as partial
+            if (onResult) partialResults.forEach(r => onResult(r));
+            return partialResults;
+          }
+          // else, try next proxy
         }
       }
       throw new Error('All proxies failed');
