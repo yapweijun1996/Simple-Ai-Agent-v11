@@ -169,29 +169,27 @@ Answer: [your final, concise answer here]
      */
     function processCoTResponse(response) {
         debugLog("processCoTResponse received:", response);
-        // Check if response follows the Thinking/Answer format
-        const thinkingMatch = response.match(/Thinking:(.*?)(?=Answer:|$)/s);
-        const answerMatch = response.match(/Answer:(.*?)$/s);
+        // Check if response follows the Step-based CoT format
+        const thinkingMatch = response.match(/(Step\s*\d+:.*?)(?=Answer:|$)/s);
+        const answerMatch = response.match(/Answer:(.*)$/s);
         debugLog("processCoTResponse: thinkingMatch", thinkingMatch, "answerMatch", answerMatch);
-        
+
         if (thinkingMatch && answerMatch) {
             const thinking = thinkingMatch[1].trim();
             const answer = answerMatch[1].trim();
-            
-            // Update the last known content
             lastThinkingContent = thinking;
             lastAnswerContent = answer;
-            
+
             return {
                 thinking: thinking,
                 answer: answer,
                 hasStructuredResponse: true
             };
-        } else if (response.startsWith('Thinking:') && !response.includes('Answer:')) {
-            // Partial thinking (no answer yet)
-            const thinking = response.replace(/^Thinking:/, '').trim();
+        } else if (response.trim().startsWith('Step') && !response.includes('Answer:')) {
+            // Partial CoT (no final answer yet)
+            const thinking = response.trim();
             lastThinkingContent = thinking;
-            
+
             return {
                 thinking: thinking,
                 answer: lastAnswerContent,
@@ -199,19 +197,9 @@ Answer: [your final, concise answer here]
                 partial: true,
                 stage: 'thinking'
             };
-        } else if (response.includes('Thinking:') && !thinkingMatch) {
-            // Malformed response (partial reasoning)
-            const thinking = response.replace(/^.*?Thinking:/s, 'Thinking:');
-            
-            return {
-                thinking: thinking.replace(/^Thinking:/, '').trim(),
-                answer: '',
-                hasStructuredResponse: false,
-                partial: true
-            };
         }
-        
-        // If not properly formatted, return the whole response as the answer
+
+        // Fallback: treat the entire response as answer
         return {
             thinking: '',
             answer: response,
@@ -226,10 +214,10 @@ Answer: [your final, concise answer here]
      */
     function processPartialCoTResponse(fullText) {
         debugLog("processPartialCoTResponse received:", fullText);
-        if (fullText.includes('Thinking:') && !fullText.includes('Answer:')) {
-            // Only thinking so far
-            const thinking = fullText.replace(/^.*?Thinking:/s, '').trim();
-            
+        if (/Step\s*\d+:/.test(fullText) && !/Answer:/.test(fullText)) {
+            // Only CoT steps so far
+            const thinking = fullText.trim();
+
             return {
                 thinking: thinking,
                 answer: '',
@@ -237,11 +225,11 @@ Answer: [your final, concise answer here]
                 partial: true,
                 stage: 'thinking'
             };
-        } else if (fullText.includes('Thinking:') && fullText.includes('Answer:')) {
-            // Both thinking and answer are present
-            const thinkingMatch = fullText.match(/Thinking:(.*?)(?=Answer:|$)/s);
-            const answerMatch = fullText.match(/Answer:(.*?)$/s);
-            
+        } else if (/Step\s*\d+:/.test(fullText) && /Answer:/.test(fullText)) {
+            // Both CoT steps and final answer are present
+            const thinkingMatch = fullText.match(/(Step\s*\d+:.*?)(?=Answer:|$)/s);
+            const answerMatch = fullText.match(/Answer:(.*)$/s);
+
             if (thinkingMatch && answerMatch) {
                 return {
                     thinking: thinkingMatch[1].trim(),
@@ -251,7 +239,7 @@ Answer: [your final, concise answer here]
                 };
             }
         }
-        
+
         // Default case - treat as normal text
         return {
             thinking: '',
