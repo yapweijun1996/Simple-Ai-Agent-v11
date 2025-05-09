@@ -760,6 +760,7 @@ Answer: [your final, concise answer based on the reasoning above]`;
         const selectedModel = SettingsController.getSettings().selectedModel;
         const prompt = `Summarize the following information extracted from multiple web pages:\n\n${readSnippets.join('\n---\n')}`;
         let aiReply = '';
+        UIController.showSpinner('Summarizing information...');
         try {
             if (selectedModel.startsWith('gpt')) {
                 const res = await ApiService.sendOpenAIRequest(selectedModel, [
@@ -774,6 +775,7 @@ Answer: [your final, concise answer based on the reasoning above]`;
         } catch (err) {
             UIController.addMessage('ai', 'Summarization failed.');
         }
+        UIController.hideSpinner();
         readSnippets = [];
     }
 
