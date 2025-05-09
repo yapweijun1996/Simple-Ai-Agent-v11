@@ -817,66 +817,57 @@ Answer: [your final, concise answer based on the reasoning above]`;
     async function summarizeSnippets() {
         if (!readSnippets.length) return;
         const selectedModel = SettingsController.getSettings().selectedModel;
-        const MAX_TOKENS = 8000; // safe for GPT-4.1 context
-        const BATCH_TOKENS = 3500; // batch size for summarization
-        let totalTokens = 0;
-        let tokenizedSnippets = readSnippets.map(s => ({ text: s, tokens: Utils.estimateTokens(s) }));
+        const MAX_PROMPT_LENGTH = 16000; // chars, safe for GPT-4.1 context
+        let prompt = `Summarize the following information extracted from multiple web pages:\n\n${readSnippets.join('\n---\n')}`;
         let aiReply = '';
         UIController.showSpinner('Summarizing information...');
         try {
-            // Batch if needed
-            let batches = [];
-            let currentBatch = [];
-            let currentTokens = 0;
-            for (let snip of tokenizedSnippets) {
-                if (currentTokens + snip.tokens > BATCH_TOKENS && currentBatch.length) {
-                    batches.push(currentBatch);
-                    currentBatch = [];
-                    currentTokens = 0;
+            // If prompt is too long, batch summarize
+            if (prompt.length > MAX_PROMPT_LENGTH) {
+                // Split into batches of ~MAX_PROMPT_LENGTH/2 chars
+                let batchSummaries = [];
+                let batch = [];
+                let batchLen = 0;
+                for (let snippet of readSnippets) {
+                    if (batchLen + snippet.length > MAX_PROMPT_LENGTH / 2 && batch.length) {
+                        // Summarize current batch
+                        const batchPrompt = `Summarize the following information extracted from web pages:\n\n${batch.join('\n---\n')}`;
+                        const res = await ApiService.sendOpenAIRequest(selectedModel, [
+                            { role: 'system', content: 'You are an assistant that synthesizes information from multiple sources.' },
+                            { role: 'user', content: batchPrompt }
+                        ]);
+                        batchSummaries.push(res.choices[0].message.content.trim());
+                        batch = [];
+                        batchLen = 0;
+                    }
+                    batch.push(snippet);
+                    batchLen += snippet.length;
                 }
-                currentBatch.push(snip.text);
-                currentTokens += snip.tokens;
-            }
-            if (currentBatch.length) batches.push(currentBatch);
-
-            let batchSummaries = [];
-            let usedTokens = 0;
-            let truncated = false;
-            // If total tokens would exceed MAX_TOKENS, truncate
-            let runningTokens = 0;
-            let allowedBatches = [];
-            for (let batch of batches) {
-                let batchText = batch.join('\n---\n');
-                let batchTokens = Utils.estimateTokens(batchText);
-                if (runningTokens + batchTokens > MAX_TOKENS) {
-                    truncated = true;
-                    break;
+                // Summarize last batch
+                if (batch.length) {
+                    const batchPrompt = `Summarize the following information extracted from web pages:\n\n${batch.join('\n---\n')}`;
+                    const res = await ApiService.sendOpenAIRequest(selectedModel, [
+                        { role: 'system', content: 'You are an assistant that synthesizes information from multiple sources.' },
+                        { role: 'user', content: batchPrompt }
+                    ]);
+                    batchSummaries.push(res.choices[0].message.content.trim());
                 }
-                allowedBatches.push(batch);
-                runningTokens += batchTokens;
-            }
-            if (truncated) {
-                UIController.addMessage('ai', `Warning: Too much content to summarize at once. Only the first ${runningTokens} tokens were used. Some information may be omitted.`);
-            }
-            // Summarize each allowed batch
-            for (let batch of allowedBatches) {
-                const batchPrompt = `Summarize the following information extracted from web pages:\n\n${batch.join('\n---\n')}`;
-                const res = await ApiService.sendOpenAIRequest(selectedModel, [
-                    { role: 'system', content: 'You are an assistant that synthesizes information from multiple sources.' },
-                    { role: 'user', content: batchPrompt }
-                ]);
-                batchSummaries.push(res.choices[0].message.content.trim());
-            }
-            // If more than one batch, summarize the summaries
-            if (batchSummaries.length > 1) {
+                // Now summarize the summaries
                 const finalPrompt = `Combine and further summarize the following summaries from multiple web pages:\n\n${batchSummaries.join('\n---\n')}`;
                 const finalRes = await ApiService.sendOpenAIRequest(selectedModel, [
                     { role: 'system', content: 'You are an assistant that synthesizes information from multiple sources.' },
                     { role: 'user', content: finalPrompt }
                 ]);
                 aiReply = finalRes.choices[0].message.content.trim();
-            } else if (batchSummaries.length === 1) {
-                aiReply = batchSummaries[0];
+            } else {
+                // Normal summarization
+                if (selectedModel.startsWith('gpt')) {
+                    const res = await ApiService.sendOpenAIRequest(selectedModel, [
+                        { role: 'system', content: 'You are an assistant that synthesizes information from multiple sources.' },
+                        { role: 'user', content: prompt }
+                    ]);
+                    aiReply = res.choices[0].message.content.trim();
+                }
             }
             if (aiReply) {
                 UIController.addMessage('ai', `Summary:\n${aiReply}`);
