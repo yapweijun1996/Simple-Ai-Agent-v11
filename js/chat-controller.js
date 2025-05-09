@@ -703,6 +703,50 @@ Answer: [your final, concise answer based on the reasoning above]`;
         return totalTokens;
     }
 
+    // Helper: AI-driven deep reading for a URL
+    async function deepReadUrl(url, maxChunks = 5, chunkSize = 2000) {
+        let allChunks = [];
+        let start = 0;
+        let shouldContinue = true;
+        let chunkCount = 0;
+        while (shouldContinue && chunkCount < maxChunks) {
+            // Read chunk
+            await processToolCall({ tool: 'read_url', arguments: { url, start, length: chunkSize }, skipContinue: true });
+            // Find the last snippet added to chatHistory
+            const lastEntry = chatHistory[chatHistory.length - 1];
+            let snippet = '';
+            if (lastEntry && typeof lastEntry.content === 'string' && lastEntry.content.startsWith('Read content from')) {
+                snippet = lastEntry.content.split('\n').slice(1).join('\n');
+                allChunks.push(snippet);
+            }
+            // Ask AI if more is needed
+            const selectedModel = SettingsController.getSettings().selectedModel;
+            let aiReply = '';
+            try {
+                const prompt = `Given the following snippet from ${url}, is more content needed from this page to answer the question?\n\nSnippet:\n${snippet}\n\nReply YES or NO.`;
+                if (selectedModel.startsWith('gpt')) {
+                    const res = await ApiService.sendOpenAIRequest(selectedModel, [
+                        { role: 'system', content: 'You are an assistant that decides if more content is needed from a web page.' },
+                        { role: 'user', content: prompt }
+                    ]);
+                    aiReply = res.choices[0].message.content.trim().toLowerCase();
+                }
+            } catch (err) {
+                // On error, stop deep reading
+                shouldContinue = false;
+                break;
+            }
+            if (aiReply.startsWith('yes')) {
+                start += chunkSize;
+                chunkCount++;
+                shouldContinue = true;
+            } else {
+                shouldContinue = false;
+            }
+        }
+        return allChunks;
+    }
+
     // Autonomous follow-up: after AI suggests which results to read, auto-read and summarize
     async function autoReadAndSummarizeFromSuggestion(aiReply) {
         if (autoReadInProgress) return; // Prevent overlap
@@ -722,7 +766,7 @@ Answer: [your final, concise answer based on the reasoning above]`;
             for (let i = 0; i < urlsToRead.length; i++) {
                 const url = urlsToRead[i];
                 UIController.showSpinner(`Reading ${i + 1} of ${urlsToRead.length} URLs: ${url}...`);
-                await processToolCall({ tool: 'read_url', arguments: { url, start: 0, length: 1122 }, skipContinue: true });
+                await deepReadUrl(url, 5, 2000);
             }
             // After all reads, auto-summarize
             await summarizeSnippets();
