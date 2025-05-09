@@ -15,8 +15,8 @@ const ChatController = (function() {
     let lastAnswerContent = '';
     // Track executed tool calls to prevent infinite loops
     let executedToolCalls = new Set();
-    // Count of non-duplicate tool calls in current sendMessage cycle
-    let toolCallsThisRound = 0;
+    // Flag to track whether we've resumed after a tool call
+    let hasResumed = false;
 
     // Debug logger for ChatController
     function debugLog(...args) {
@@ -287,8 +287,8 @@ Answer: [your final, concise answer here]
      * Sends a message to the AI and handles the response
      */
     async function sendMessage() {
-        // Reset per-message tool call counter
-        toolCallsThisRound = 0;
+        // Reset resume flag for this message cycle
+        hasResumed = false;
         const message = UIController.getUserInput();
         if (!message) return;
         
@@ -749,8 +749,9 @@ Answer: [your final, concise answer here]
             debugLog('Error during tool execution:', err);
         } finally {
             UIController.clearStatus();
-            // Only continue if this is not a nested skipContinue call and not a duplicate tool call
-            if (!skipContinue && !isDuplicate && toolCallsThisRound === 1) {
+            // Only resume once after the first non-duplicate tool call
+            if (!skipContinue && !isDuplicate && !hasResumed) {
+                hasResumed = true;
                 try {
                     const selectedModel = SettingsController.getSettings().selectedModel;
                     // Reuse last user message for continuation
