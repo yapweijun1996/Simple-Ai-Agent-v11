@@ -145,9 +145,18 @@ Begin your interaction.`
      * @returns {string} - The CoT enhanced message
      */
     function enhanceWithCoT(message) {
-        return `${message}\n\nI'd like you to use Chain of Thought reasoning. Please think step-by-step before providing your final answer. Format your response like this:
-Thinking: [detailed reasoning process, exploring different angles and considerations]
-Answer: [your final, concise answer based on the reasoning above]`;
+        return `${message}
+
+Please think step-by-step, prefix each step with "Step X:". After completing your reasoning:
+• If you need to call an external tool, output ONLY the JSON object for the tool call in the exact format:
+  {"tool":"<tool_name>","arguments":{...}}
+  and NOTHING ELSE.
+• If no tool call is needed, then output your final answer prefixed with "Answer:".
+Examples:
+Step 1: ...
+Step 2: ...
+Answer: [your final, concise answer here]
+`;
     }
 
     /**
