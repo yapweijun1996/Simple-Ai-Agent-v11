@@ -416,9 +416,8 @@ Answer: [your final, concise answer based on the reasoning above]`;
         } else {
             // Show status for non-streaming response
             UIController.showStatus('Waiting for AI response...');
-            // FIRST_EDIT: Show an empty AI message placeholder in non-streaming OpenAI
+            // Show an empty AI message placeholder in non-streaming OpenAI
             const aiMsgElement = UIController.createEmptyAIMessage();
-            // Non-streaming approach
             try {
                 const systemMsgNS = chatHistory[0];
                 // Trim to last 10 messages
@@ -454,18 +453,25 @@ Answer: [your final, concise answer based on the reasoning above]`;
                         debugLog('AI Thinking:', processed.thinking);
                     }
                     
-                    // Add the full response to chat history
+                    // Add full response to chat history
                     chatHistory.push({ role: 'assistant', content: reply });
                     
-                    // Show appropriate content in the UI based on settings
+                    // Update placeholder with structured response
                     const displayText = formatResponseForDisplay(processed);
-                    // SECOND_EDIT: Update the placeholder instead of adding a new bubble
                     UIController.updateMessageContent(aiMsgElement, displayText);
                 } else {
-                    // THIRD_EDIT: Update the placeholder with the raw reply
+                    // Add raw response to chat history
+                    chatHistory.push({ role: 'assistant', content: reply });
+                    // Update placeholder with the raw reply
                     UIController.updateMessageContent(aiMsgElement, reply);
                 }
             } catch (err) {
+                // Update placeholder on error
+                if (err.name === 'AbortError') {
+                    UIController.updateMessageContent(aiMsgElement, 'Error: Request timed out. Please try again.');
+                } else {
+                    UIController.updateMessageContent(aiMsgElement, 'Error: ' + err.message);
+                }
                 throw err;
             }
         }
@@ -565,7 +571,6 @@ Answer: [your final, concise answer based on the reasoning above]`;
             }
         } else {
             // Non-streaming approach for Gemini
-            // FOURTH_EDIT: Show status and placeholder in non-streaming Gemini
             UIController.showStatus('Waiting for AI response...');
             const aiMsgElement = UIController.createEmptyAIMessage();
             try {
@@ -606,18 +611,25 @@ Answer: [your final, concise answer based on the reasoning above]`;
                         debugLog('AI Thinking:', processed.thinking);
                     }
                     
-                    // Add the full response to chat history
+                    // Add full response to chat history
                     chatHistory.push({ role: 'assistant', content: textResponse });
                     
-                    // Show appropriate content in the UI based on settings
+                    // Update placeholder with CoT display
                     const displayText = formatResponseForDisplay(processed);
-                    // FIFTH_EDIT: Update the placeholder with CoT display
                     UIController.updateMessageContent(aiMsgElement, displayText);
                 } else {
-                    // SIXTH_EDIT: Update the placeholder with the Gemini reply
+                    // Add raw response to chat history
+                    chatHistory.push({ role: 'assistant', content: textResponse });
+                    // Update placeholder with the Gemini reply
                     UIController.updateMessageContent(aiMsgElement, textResponse);
                 }
             } catch (err) {
+                // Update placeholder on error
+                if (err.name === 'AbortError') {
+                    UIController.updateMessageContent(aiMsgElement, 'Error: Request timed out. Please try again.');
+                    return;
+                }
+                UIController.updateMessageContent(aiMsgElement, 'Error: ' + err.message);
                 throw err;
             }
         }
