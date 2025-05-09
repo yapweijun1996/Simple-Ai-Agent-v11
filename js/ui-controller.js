@@ -10,6 +10,12 @@ const UIController = (function() {
     let sendMessageCallback = null;
     let clearChatCallback = null;
     
+    // Deduplication and offset tracking
+    const shownUrls = new Set();
+    const urlOffsets = new Map();
+    
+    let summarizeBtn = null;
+    
     /**
      * Initializes the UI controller
      */
@@ -299,25 +305,44 @@ const UIController = (function() {
         }
     }
 
+    // Spinner for progress feedback
+    function showSpinner(message) {
+        const bar = document.getElementById('status-bar');
+        if (bar) {
+            bar.innerHTML = `<span class="spinner" aria-live="polite" aria-busy="true"></span> ${message}`;
+            bar.style.visibility = 'visible';
+        }
+    }
+    function hideSpinner() {
+        const bar = document.getElementById('status-bar');
+        if (bar) {
+            bar.innerHTML = '';
+            bar.style.visibility = 'hidden';
+        }
+    }
+
     /**
      * Adds a search result to the chat window with a 'Read More' button
      * @param {Object} result - {title, url, snippet}
      * @param {Function} onReadMore - Callback when 'Read More' is clicked
      */
     function addSearchResult(result, onReadMore) {
+        if (shownUrls.has(result.url)) return;
+        shownUrls.add(result.url);
         const chatWindow = document.getElementById('chat-window');
         const article = document.createElement('article');
         article.className = 'chat-app__message ai-message search-result';
         article.innerHTML = `
-            <div class="chat-app__message-content">
-                <strong><a href="${result.url}" target="_blank" rel="noopener noreferrer">${Utils.escapeHtml(result.title)}</a></strong><br>
+            <div class="chat-app__message-content" aria-label="Search result">
+                <strong><a href="${result.url}" target="_blank" rel="noopener noreferrer" tabindex="0">${Utils.escapeHtml(result.title)}</a></strong><br>
                 <small>${Utils.escapeHtml(result.url)}</small>
                 <p>${Utils.escapeHtml(result.snippet)}</p>
-                <button class="read-more-btn">Read More</button>
+                <button class="read-more-btn" aria-label="Read more from ${Utils.escapeHtml(result.title)}">Read More</button>
             </div>
         `;
         const btn = article.querySelector('.read-more-btn');
         btn.addEventListener('click', () => onReadMore(result.url));
+        btn.tabIndex = 0;
         chatWindow.appendChild(article);
         article.scrollIntoView({ behavior: 'smooth', block: 'end' });
     }
@@ -329,25 +354,46 @@ const UIController = (function() {
      * @param {boolean} hasMore
      */
     function addReadResult(url, snippet, hasMore) {
+        urlOffsets.set(url, (urlOffsets.get(url) || 0) + snippet.length);
         const chatWindow = document.getElementById('chat-window');
         const article = document.createElement('article');
         article.className = 'chat-app__message ai-message read-result';
         article.innerHTML = `
-            <div class="chat-app__message-content">
-                <strong>Read from: <a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a></strong>
+            <div class="chat-app__message-content" aria-label="Read result">
+                <strong>Read from: <a href="${url}" target="_blank" rel="noopener noreferrer" tabindex="0">${url}</a></strong>
                 <p>${Utils.escapeHtml(snippet)}${hasMore ? '...' : ''}</p>
-                ${hasMore ? '<button class="read-more-btn">Read More</button>' : ''}
+                ${hasMore ? '<button class="read-more-btn" aria-label="Read more from this page">Read More</button>' : ''}
             </div>
         `;
         if (hasMore) {
             const btn = article.querySelector('.read-more-btn');
             btn.addEventListener('click', () => {
-                // Fetch next chunk (could be improved to track offset)
-                ChatController.processToolCall({ tool: 'read_url', arguments: { url, start: snippet.length, length: 2000 } });
+                const offset = urlOffsets.get(url) || snippet.length;
+                ChatController.processToolCall({ tool: 'read_url', arguments: { url, start: offset, length: 2000 } });
             });
+            btn.tabIndex = 0;
         }
         chatWindow.appendChild(article);
         article.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }
+
+    function addSummarizeButton(onClick) {
+        if (summarizeBtn) return; // Only one at a time
+        const chatWindow = document.getElementById('chat-window');
+        summarizeBtn = document.createElement('button');
+        summarizeBtn.className = 'summarize-btn';
+        summarizeBtn.textContent = 'Summarize';
+        summarizeBtn.setAttribute('aria-label', 'Summarize gathered information');
+        summarizeBtn.tabIndex = 0;
+        summarizeBtn.addEventListener('click', () => {
+            onClick();
+            if (summarizeBtn) {
+                summarizeBtn.remove();
+                summarizeBtn = null;
+            }
+        });
+        chatWindow.appendChild(summarizeBtn);
+        summarizeBtn.scrollIntoView({ behavior: 'smooth', block: 'end' });
     }
 
     // Public API
@@ -364,6 +410,9 @@ const UIController = (function() {
         clearStatus,
         addSearchResult,
         addReadResult,
+        showSpinner,
+        hideSpinner,
+        addSummarizeButton,
         /**
          * Adds a chat bubble with raw HTML content (for tool results)
          * @param {string} sender - 'user' or 'ai'

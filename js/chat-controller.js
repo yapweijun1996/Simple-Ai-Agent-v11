@@ -13,6 +13,7 @@ const ChatController = (function() {
     let isThinking = false;
     let lastThinkingContent = '';
     let lastAnswerContent = '';
+    let readSnippets = [];
 
     // Add helper to robustly extract JSON tool calls (handles markdown fences)
     function extractToolCall(text) {
@@ -43,37 +44,37 @@ Begin Reasoning Now:
                 UIController.addMessage('ai', 'Error: Invalid web_search query.');
                 return;
             }
-            UIController.showStatus(`Searching web for "${args.query}"...`);
+            const engine = args.engine || 'duckduckgo';
+            UIController.showSpinner(`Searching (${engine}) for "${args.query}"...`);
             let results = [];
             try {
-                // Stream results to UI as they arrive
                 const streamed = [];
                 results = await ToolsService.webSearch(args.query, (result) => {
                     streamed.push(result);
                     UIController.addSearchResult(result, (url) => {
-                        // On Read More click, trigger read_url tool call
                         processToolCall({ tool: 'read_url', arguments: { url, start: 0, length: 1122 } });
                     });
-                });
+                }, engine);
                 if (!results.length) {
                     UIController.addMessage('ai', `No search results found for "${args.query}".`);
                 }
-                // Add plain text results to chat history for model processing
                 const plainTextResults = results.map((r, i) => `${i+1}. ${r.title} (${r.url}) - ${r.snippet}`).join('\n');
                 chatHistory.push({ role: 'assistant', content: `Search results for "${args.query}" (${results.length}):\n${plainTextResults}` });
+                // Prompt AI to suggest which results to read
+                await suggestResultsToRead(results, args.query);
             } catch (err) {
-                UIController.clearStatus();
+                UIController.hideSpinner();
                 UIController.addMessage('ai', `Web search failed: ${err.message}`);
                 chatHistory.push({ role: 'assistant', content: `Web search failed: ${err.message}` });
             }
-            UIController.clearStatus();
+            UIController.hideSpinner();
         },
         read_url: async function(args) {
             if (!args.url || typeof args.url !== 'string' || !/^https?:\/\//.test(args.url)) {
                 UIController.addMessage('ai', 'Error: Invalid read_url argument.');
                 return;
             }
-            UIController.showStatus(`Reading content from ${args.url}...`);
+            UIController.showSpinner(`Reading content from ${args.url}...`);
             try {
                 const result = await ToolsService.readUrl(args.url);
                 const start = (typeof args.start === 'number' && args.start >= 0) ? args.start : 0;
@@ -83,12 +84,17 @@ Begin Reasoning Now:
                 UIController.addReadResult(args.url, snippet, hasMore);
                 const plainTextSnippet = `Read content from ${args.url}:\n${snippet}${hasMore ? '...' : ''}`;
                 chatHistory.push({ role: 'assistant', content: plainTextSnippet });
+                // Collect snippets for summarization
+                readSnippets.push(snippet);
+                if (readSnippets.length >= 2) {
+                    UIController.addSummarizeButton(() => summarizeSnippets());
+                }
             } catch (err) {
-                UIController.clearStatus();
+                UIController.hideSpinner();
                 UIController.addMessage('ai', `Read URL failed: ${err.message}`);
                 chatHistory.push({ role: 'assistant', content: `Read URL failed: ${err.message}` });
             }
-            UIController.clearStatus();
+            UIController.hideSpinner();
         },
         instant_answer: async function(args) {
             if (!args.query || typeof args.query !== 'string' || !args.query.trim()) {
@@ -659,6 +665,52 @@ Answer: [your final, concise answer based on the reasoning above]`;
      */
     function getTotalTokens() {
         return totalTokens;
+    }
+
+    // Suggestion logic: ask AI which results to read
+    async function suggestResultsToRead(results, query) {
+        if (!results || results.length === 0) return;
+        const prompt = `Given these search results for the query: "${query}", which results (by number) are most relevant to read in detail?\n\n${results.map((r, i) => `${i+1}. ${r.title} - ${r.snippet}`).join('\n')}\n\nReply with a comma-separated list of result numbers.`;
+        const selectedModel = SettingsController.getSettings().selectedModel;
+        let aiReply = '';
+        try {
+            if (selectedModel.startsWith('gpt')) {
+                const res = await ApiService.sendOpenAIRequest(selectedModel, [
+                    { role: 'system', content: 'You are an assistant helping to select the most relevant search results.' },
+                    { role: 'user', content: prompt }
+                ]);
+                aiReply = res.choices[0].message.content.trim();
+            }
+            // Optionally, parse and highlight suggested results
+            if (aiReply) {
+                UIController.addMessage('ai', `AI suggests reading results: ${aiReply}`);
+            }
+        } catch (err) {
+            // Ignore suggestion errors
+        }
+    }
+
+    // Summarization logic
+    async function summarizeSnippets() {
+        if (!readSnippets.length) return;
+        const selectedModel = SettingsController.getSettings().selectedModel;
+        const prompt = `Summarize the following information extracted from multiple web pages:\n\n${readSnippets.join('\n---\n')}`;
+        let aiReply = '';
+        try {
+            if (selectedModel.startsWith('gpt')) {
+                const res = await ApiService.sendOpenAIRequest(selectedModel, [
+                    { role: 'system', content: 'You are an assistant that synthesizes information from multiple sources.' },
+                    { role: 'user', content: prompt }
+                ]);
+                aiReply = res.choices[0].message.content.trim();
+            }
+            if (aiReply) {
+                UIController.addMessage('ai', `Summary:\n${aiReply}`);
+            }
+        } catch (err) {
+            UIController.addMessage('ai', 'Summarization failed.');
+        }
+        readSnippets = [];
     }
 
     // Public API
