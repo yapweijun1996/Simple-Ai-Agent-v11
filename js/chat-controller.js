@@ -817,7 +817,8 @@ Answer: [your final, concise answer based on the reasoning above]`;
     async function summarizeSnippets() {
         if (!readSnippets.length) return;
         const selectedModel = SettingsController.getSettings().selectedModel;
-        const MAX_PROMPT_LENGTH = 16000; // chars, safe for GPT-4.1 context
+        const MAX_PROMPT_LENGTH = 8000; // chars, smaller batches for reliability
+        const SUMMARIZATION_TIMEOUT = 88000; // 88 seconds
         let prompt = `Summarize the following information extracted from multiple web pages:\n\n${readSnippets.join('\n---\n')}`;
         let aiReply = '';
         UIController.showSpinner('Summarizing information...');
@@ -835,7 +836,7 @@ Answer: [your final, concise answer based on the reasoning above]`;
                         const res = await ApiService.sendOpenAIRequest(selectedModel, [
                             { role: 'system', content: 'You are an assistant that synthesizes information from multiple sources.' },
                             { role: 'user', content: batchPrompt }
-                        ]);
+                        ], SUMMARIZATION_TIMEOUT);
                         batchSummaries.push(res.choices[0].message.content.trim());
                         batch = [];
                         batchLen = 0;
@@ -849,7 +850,7 @@ Answer: [your final, concise answer based on the reasoning above]`;
                     const res = await ApiService.sendOpenAIRequest(selectedModel, [
                         { role: 'system', content: 'You are an assistant that synthesizes information from multiple sources.' },
                         { role: 'user', content: batchPrompt }
-                    ]);
+                    ], SUMMARIZATION_TIMEOUT);
                     batchSummaries.push(res.choices[0].message.content.trim());
                 }
                 // Now summarize the summaries
@@ -857,7 +858,7 @@ Answer: [your final, concise answer based on the reasoning above]`;
                 const finalRes = await ApiService.sendOpenAIRequest(selectedModel, [
                     { role: 'system', content: 'You are an assistant that synthesizes information from multiple sources.' },
                     { role: 'user', content: finalPrompt }
-                ]);
+                ], SUMMARIZATION_TIMEOUT);
                 aiReply = finalRes.choices[0].message.content.trim();
             } else {
                 // Normal summarization
@@ -865,7 +866,7 @@ Answer: [your final, concise answer based on the reasoning above]`;
                     const res = await ApiService.sendOpenAIRequest(selectedModel, [
                         { role: 'system', content: 'You are an assistant that synthesizes information from multiple sources.' },
                         { role: 'user', content: prompt }
-                    ]);
+                    ], SUMMARIZATION_TIMEOUT);
                     aiReply = res.choices[0].message.content.trim();
                 }
             }
