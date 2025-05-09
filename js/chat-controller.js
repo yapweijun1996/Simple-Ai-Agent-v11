@@ -14,6 +14,11 @@ const ChatController = (function() {
     let lastThinkingContent = '';
     let lastAnswerContent = '';
 
+    // Debug logger for ChatController
+    function debugLog(...args) {
+        console.log('[ChatController]', ...args);
+    }
+
     // Add helper to robustly extract JSON tool calls (handles fences and nested braces)
     function extractToolCall(text) {
         // 1. Try fenced JSON block: ```json { ... } ```
@@ -106,7 +111,7 @@ Begin your interaction.`
      */
     function updateSettings(newSettings) {
         settings = { ...settings, ...newSettings };
-        console.log('Chat settings updated:', settings);
+        debugLog('Chat settings updated:', settings);
     }
 
     /**
@@ -143,11 +148,11 @@ Answer: [your final, concise answer based on the reasoning above]`;
      * @returns {Object} - Object with thinking and answer components
      */
     function processCoTResponse(response) {
-        console.log("processCoTResponse received:", response);
+        debugLog("processCoTResponse received:", response);
         // Check if response follows the Thinking/Answer format
         const thinkingMatch = response.match(/Thinking:(.*?)(?=Answer:|$)/s);
         const answerMatch = response.match(/Answer:(.*?)$/s);
-        console.log("processCoTResponse: thinkingMatch", thinkingMatch, "answerMatch", answerMatch);
+        debugLog("processCoTResponse: thinkingMatch", thinkingMatch, "answerMatch", answerMatch);
         
         if (thinkingMatch && answerMatch) {
             const thinking = thinkingMatch[1].trim();
@@ -200,7 +205,7 @@ Answer: [your final, concise answer based on the reasoning above]`;
      * @returns {Object} - The processed response object
      */
     function processPartialCoTResponse(fullText) {
-        console.log("processPartialCoTResponse received:", fullText);
+        debugLog("processPartialCoTResponse received:", fullText);
         if (fullText.includes('Thinking:') && !fullText.includes('Answer:')) {
             // Only thinking so far
             const thinking = fullText.replace(/^.*?Thinking:/s, '').trim();
@@ -291,7 +296,7 @@ Answer: [your final, concise answer based on the reasoning above]`;
             if (selectedModel.startsWith('gpt')) {
                 // For OpenAI, add enhanced message to chat history before sending to include the CoT prompt.
                 chatHistory.push({ role: 'user', content: enhancedMessage });
-                console.log("Sent enhanced message to GPT:", enhancedMessage);
+                debugLog("Sent enhanced message to GPT:", enhancedMessage);
                 await handleOpenAIMessage(selectedModel, enhancedMessage);
             } else {
                 // For Gemini, ensure chat history starts with user message if empty
@@ -371,7 +376,7 @@ Answer: [your final, concise answer based on the reasoning above]`;
                     
                     // Add thinking to debug console if available
                     if (processed.thinking) {
-                        console.log('AI Thinking:', processed.thinking);
+                        debugLog('AI Thinking:', processed.thinking);
                     }
                     
                     // Update UI with appropriate content based on settings
@@ -414,7 +419,7 @@ Answer: [your final, concise answer based on the reasoning above]`;
                 
                 // Process response
                 const reply = result.choices[0].message.content;
-                console.log("GPT non-streaming reply:", reply);
+                debugLog("GPT non-streaming reply:", reply);
 
                 // Intercept tool call JSON
                 const toolCall = extractToolCall(reply);
@@ -428,7 +433,7 @@ Answer: [your final, concise answer based on the reasoning above]`;
                     
                     // Add thinking to debug console if available
                     if (processed.thinking) {
-                        console.log('AI Thinking:', processed.thinking);
+                        debugLog('AI Thinking:', processed.thinking);
                     }
                     
                     // Add the full response to chat history
@@ -506,7 +511,7 @@ Answer: [your final, concise answer based on the reasoning above]`;
                     
                     // Add thinking to debug console if available
                     if (processed.thinking) {
-                        console.log('AI Thinking:', processed.thinking);
+                        debugLog('AI Thinking:', processed.thinking);
                     }
                     
                     // Update UI with appropriate content based on settings
@@ -564,7 +569,7 @@ Answer: [your final, concise answer based on the reasoning above]`;
                     
                     // Add thinking to debug console if available
                     if (processed.thinking) {
-                        console.log('AI Thinking:', processed.thinking);
+                        debugLog('AI Thinking:', processed.thinking);
                     }
                     
                     // Add the full response to chat history
@@ -643,13 +648,13 @@ Answer: [your final, concise answer based on the reasoning above]`;
                 UIController.addHtmlMessage('ai', html);
                 const plainTextSnippet = `Read content from ${args.url}:\n${snippet}${hasMore ? '...' : ''}`;
                 chatHistory.push({ role: 'assistant', content: plainTextSnippet });
-                console.log(`[read_url] url=${args.url}, offset=${offset}, snippetLength=${snippet.length}, hasMore=${hasMore}`);
+                debugLog(`[read_url] url=${args.url}, offset=${offset}, snippetLength=${snippet.length}, hasMore=${hasMore}`);
 
                 // If no more content, break
                 if (!hasMore) break;
 
                 // Ask AI if more content should be fetched
-                console.log(`[read_url] Prompting AI for decision to fetch more (offset=${offset}, length=${chunkSize})`);
+                debugLog(`[read_url] Prompting AI for decision to fetch more (offset=${offset}, length=${chunkSize})`);
                 const lastUser = chatHistory.filter(m => m.role === 'user').pop().content;
                 const decisionPrompt = `User query: "${lastUser}"\nSnippet: "${snippet}"\n\nShould you fetch more content from this URL? Reply YES or NO.`;
                 let shouldFetchMore = false;
