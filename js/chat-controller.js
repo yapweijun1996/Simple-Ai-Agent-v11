@@ -734,10 +734,15 @@ Answer: [your final, concise answer based on the reasoning above]`;
         if (!skipContinue) {
             try {
                 const selectedModel = SettingsController.getSettings().selectedModel;
+                // Reuse the last user message for continuation
+                const lastUserMsg = chatHistory.filter(m => m.role === 'user').pop()?.content || '';
+                const nextMsg = settings.enableCoT ? enhanceWithCoT(lastUserMsg) : lastUserMsg;
                 if (selectedModel.startsWith('gpt')) {
-                    await handleOpenAIMessage(selectedModel, '');
+                    // Push user message and continue CoT
+                    chatHistory.push({ role: 'user', content: nextMsg });
+                    await handleOpenAIMessage(selectedModel, nextMsg);
                 } else {
-                    await handleGeminiMessage(selectedModel, '');
+                    await handleGeminiMessage(selectedModel, nextMsg);
                 }
             } catch (err) {
                 debugLog('Continuation error:', err);
