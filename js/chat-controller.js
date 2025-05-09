@@ -817,7 +817,9 @@ Answer: [your final, concise answer based on the reasoning above]`;
     async function summarizeSnippets() {
         if (!readSnippets.length) return;
         const selectedModel = SettingsController.getSettings().selectedModel;
-        const MAX_PROMPT_LENGTH = 8000; // chars, smaller batches for reliability
+        const MAX_PROMPT_LENGTH = 4000; // chars, smaller batches for reliability
+        const BATCH_SIZE = 1000; // chars per batch
+        const MAX_BATCHES = 5; // max batches per summarization round
         const SUMMARIZATION_TIMEOUT = 88000; // 88 seconds
         let prompt = `Summarize the following information extracted from multiple web pages:\n\n${readSnippets.join('\n---\n')}`;
         let aiReply = '';
@@ -825,12 +827,13 @@ Answer: [your final, concise answer based on the reasoning above]`;
         try {
             // If prompt is too long, batch summarize
             if (prompt.length > MAX_PROMPT_LENGTH) {
-                // Split into batches of ~MAX_PROMPT_LENGTH/2 chars
+                // Split into batches of ~BATCH_SIZE chars, up to MAX_BATCHES
                 let batchSummaries = [];
                 let batch = [];
                 let batchLen = 0;
+                let batchCount = 0;
                 for (let snippet of readSnippets) {
-                    if (batchLen + snippet.length > MAX_PROMPT_LENGTH / 2 && batch.length) {
+                    if ((batchLen + snippet.length > BATCH_SIZE || batch.length >= MAX_BATCHES) && batch.length) {
                         // Summarize current batch
                         const batchPrompt = `Summarize the following information extracted from web pages:\n\n${batch.join('\n---\n')}`;
                         const res = await ApiService.sendOpenAIRequest(selectedModel, [
@@ -840,12 +843,14 @@ Answer: [your final, concise answer based on the reasoning above]`;
                         batchSummaries.push(res.choices[0].message.content.trim());
                         batch = [];
                         batchLen = 0;
+                        batchCount++;
+                        if (batchCount >= MAX_BATCHES) break;
                     }
                     batch.push(snippet);
                     batchLen += snippet.length;
                 }
                 // Summarize last batch
-                if (batch.length) {
+                if (batch.length && batchCount < MAX_BATCHES) {
                     const batchPrompt = `Summarize the following information extracted from web pages:\n\n${batch.join('\n---\n')}`;
                     const res = await ApiService.sendOpenAIRequest(selectedModel, [
                         { role: 'system', content: 'You are an assistant that synthesizes information from multiple sources.' },
@@ -853,13 +858,18 @@ Answer: [your final, concise answer based on the reasoning above]`;
                     ], SUMMARIZATION_TIMEOUT);
                     batchSummaries.push(res.choices[0].message.content.trim());
                 }
-                // Now summarize the summaries
-                const finalPrompt = `Combine and further summarize the following summaries from multiple web pages:\n\n${batchSummaries.join('\n---\n')}`;
-                const finalRes = await ApiService.sendOpenAIRequest(selectedModel, [
-                    { role: 'system', content: 'You are an assistant that synthesizes information from multiple sources.' },
-                    { role: 'user', content: finalPrompt }
-                ], SUMMARIZATION_TIMEOUT);
-                aiReply = finalRes.choices[0].message.content.trim();
+                // If more snippets remain, summarize in another round
+                if (readSnippets.length > MAX_BATCHES) {
+                    // Summarize the summaries in a second round
+                    const finalPrompt = `Combine and further summarize the following summaries from multiple web pages:\n\n${batchSummaries.join('\n---\n')}`;
+                    const finalRes = await ApiService.sendOpenAIRequest(selectedModel, [
+                        { role: 'system', content: 'You are an assistant that synthesizes information from multiple sources.' },
+                        { role: 'user', content: finalPrompt }
+                    ], SUMMARIZATION_TIMEOUT);
+                    aiReply = finalRes.choices[0].message.content.trim();
+                } else {
+                    aiReply = batchSummaries.join('\n---\n');
+                }
             } else {
                 // Normal summarization
                 if (selectedModel.startsWith('gpt')) {
