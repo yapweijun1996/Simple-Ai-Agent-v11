@@ -15,6 +15,10 @@ const ChatController = (function() {
     let lastAnswerContent = '';
     // Track executed tool calls to prevent infinite loops
     let executedToolCalls = new Set();
+    // Count the number of tool calls in this interaction
+    let toolCallCount = 0;
+    // Maximum allowed tool calls before stopping auto-continuation
+    const MAX_TOOL_CALLS = 3;
 
     // Debug logger for ChatController
     function debugLog(...args) {
@@ -639,6 +643,8 @@ Answer: [your final, concise answer based on the reasoning above]`;
      * Executes a tool call, injects result into chat, and continues reasoning
      */
     async function processToolCall(call) {
+        // Increment tool call count
+        toolCallCount++;
         // Extract call properties
         const { tool, arguments: args, skipContinue } = call;
         // Detect duplicates but allow continuation
@@ -756,7 +762,7 @@ Answer: [your final, concise answer based on the reasoning above]`;
             UIController.clearStatus();
         }
         // Continue Chain-of-Thought with updated history for the active model, unless skipped
-        if (!skipContinue) {
+        if (!skipContinue && toolCallCount <= MAX_TOOL_CALLS) {
             try {
                 const selectedModel = SettingsController.getSettings().selectedModel;
                 // Reuse the last user message for continuation
@@ -774,6 +780,9 @@ Answer: [your final, concise answer based on the reasoning above]`;
                 debugLog('Continuation error:', err);
                 // Preserve UI responsiveness; skip further reasoning on error
             }
+        } else {
+            debugLog('Max tool calls reached or skipContinue, skipping auto-continuation');
+            UIController.clearStatus();
         }
     }
 
