@@ -753,14 +753,15 @@ Answer: [your final, concise answer here]
             if (!skipContinue && !isDuplicate && toolCallsThisRound === 1) {
                 try {
                     const selectedModel = SettingsController.getSettings().selectedModel;
-                    const lastUserMsg = chatHistory.filter(m => m.role === 'user').pop()?.content || '';
-                    const nextMsg = settings.enableCoT ? enhanceWithCoT(lastUserMsg) : lastUserMsg;
-                    // Push and resume conversation
-                    chatHistory.push({ role: 'user', content: nextMsg });
                     if (selectedModel.startsWith('gpt')) {
-                        debugLog('Continuing conversation with GPT:', nextMsg);
-                        await handleOpenAIMessage(selectedModel, nextMsg);
+                        debugLog('Continuing conversation with GPT');
+                        // Resume GPT without an additional user message; context already in chatHistory
+                        await handleOpenAIMessage(selectedModel, '');
                     } else {
+                        // For Gemini, we need to supply the next enhanced prompt
+                        const lastUserMsg = chatHistory.filter(m => m.role === 'user').pop()?.content || '';
+                        const nextMsg = settings.enableCoT ? enhanceWithCoT(lastUserMsg) : lastUserMsg;
+                        chatHistory.push({ role: 'user', content: nextMsg });
                         debugLog('Continuing conversation with Gemini:', nextMsg);
                         await handleGeminiMessage(selectedModel, nextMsg);
                     }
