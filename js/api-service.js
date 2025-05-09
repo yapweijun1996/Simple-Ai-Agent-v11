@@ -61,9 +61,10 @@ const ApiService = (function() {
      * Sends a non-streaming request to OpenAI API
      * @param {string} model - The model to use
      * @param {Array} messages - The message history
+     * @param {number} [timeout] - Optional timeout in ms
      * @returns {Promise<Object>} - The API response
      */
-    async function sendOpenAIRequest(model, messages) {
+    async function sendOpenAIRequest(model, messages, timeout = 10000) {
         const payload = { model, messages };
         const response = await Utils.fetchWithRetry('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
@@ -73,7 +74,7 @@ const ApiService = (function() {
                 'Authorization': 'Bearer ' + apiKey 
             },
             body: JSON.stringify(payload)
-        }, 3, 1000, 10000);
+        }, 3, 1000, timeout);
         
         if (!response.ok) {
             const errText = await response.text();
