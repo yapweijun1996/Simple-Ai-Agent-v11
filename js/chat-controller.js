@@ -15,10 +15,6 @@ const ChatController = (function() {
     let lastAnswerContent = '';
     // Track executed tool calls to prevent infinite loops
     let executedToolCalls = new Set();
-    // Count the number of tool calls in this interaction
-    let toolCallCount = 0;
-    // Maximum allowed tool calls before stopping auto-continuation
-    const MAX_TOOL_CALLS = 3;
 
     // Debug logger for ChatController
     function debugLog(...args) {
@@ -420,8 +416,7 @@ Answer: [your final, concise answer based on the reasoning above]`;
         } else {
             // Show status for non-streaming response
             UIController.showStatus('Waiting for AI response...');
-            // Show an empty AI message placeholder in non-streaming OpenAI
-            const aiMsgElement = UIController.createEmptyAIMessage();
+            // Non-streaming approach
             try {
                 const systemMsgNS = chatHistory[0];
                 // Trim to last 10 messages
@@ -457,25 +452,17 @@ Answer: [your final, concise answer based on the reasoning above]`;
                         debugLog('AI Thinking:', processed.thinking);
                     }
                     
-                    // Add full response to chat history
+                    // Add the full response to chat history
                     chatHistory.push({ role: 'assistant', content: reply });
                     
-                    // Update placeholder with structured response
+                    // Show appropriate content in the UI based on settings
                     const displayText = formatResponseForDisplay(processed);
-                    UIController.updateMessageContent(aiMsgElement, displayText);
+                    UIController.addMessage('ai', displayText);
                 } else {
-                    // Add raw response to chat history
                     chatHistory.push({ role: 'assistant', content: reply });
-                    // Update placeholder with the raw reply
-                    UIController.updateMessageContent(aiMsgElement, reply);
+                    UIController.addMessage('ai', reply);
                 }
             } catch (err) {
-                // Update placeholder on error
-                if (err.name === 'AbortError') {
-                    UIController.updateMessageContent(aiMsgElement, 'Error: Request timed out. Please try again.');
-                } else {
-                    UIController.updateMessageContent(aiMsgElement, 'Error: ' + err.message);
-                }
                 throw err;
             }
         }
@@ -574,9 +561,7 @@ Answer: [your final, concise answer based on the reasoning above]`;
                 isThinking = false;
             }
         } else {
-            // Non-streaming approach for Gemini
-            UIController.showStatus('Waiting for AI response...');
-            const aiMsgElement = UIController.createEmptyAIMessage();
+            // Non-streaming approach
             try {
                 const systemMsgGNS = chatHistory[0];
                 // Trim context
@@ -615,25 +600,17 @@ Answer: [your final, concise answer based on the reasoning above]`;
                         debugLog('AI Thinking:', processed.thinking);
                     }
                     
-                    // Add full response to chat history
+                    // Add the full response to chat history
                     chatHistory.push({ role: 'assistant', content: textResponse });
                     
-                    // Update placeholder with CoT display
+                    // Show appropriate content in the UI based on settings
                     const displayText = formatResponseForDisplay(processed);
-                    UIController.updateMessageContent(aiMsgElement, displayText);
+                    UIController.addMessage('ai', displayText);
                 } else {
-                    // Add raw response to chat history
                     chatHistory.push({ role: 'assistant', content: textResponse });
-                    // Update placeholder with the Gemini reply
-                    UIController.updateMessageContent(aiMsgElement, textResponse);
+                    UIController.addMessage('ai', textResponse);
                 }
             } catch (err) {
-                // Update placeholder on error
-                if (err.name === 'AbortError') {
-                    UIController.updateMessageContent(aiMsgElement, 'Error: Request timed out. Please try again.');
-                    return;
-                }
-                UIController.updateMessageContent(aiMsgElement, 'Error: ' + err.message);
                 throw err;
             }
         }
@@ -643,8 +620,6 @@ Answer: [your final, concise answer based on the reasoning above]`;
      * Executes a tool call, injects result into chat, and continues reasoning
      */
     async function processToolCall(call) {
-        // Increment tool call count
-        toolCallCount++;
         // Extract call properties
         const { tool, arguments: args, skipContinue } = call;
         // Detect duplicates but allow continuation
@@ -706,48 +681,73 @@ Answer: [your final, concise answer based on the reasoning above]`;
                 } catch (err) {
                     debugLog(`read_url failed for ${args.url}, skipping this URL:`, err);
                     UIController.addMessage('ai', `[read_url] Skipped content from ${args.url} due to an error.`);
+                    // Don't continue this URL; but allow overall processToolCall to finish
                     UIController.clearStatus();
                     return;
                 }
                 const fullText = String(result);
+                const totalLength = fullText.length;
                 const start = (typeof args.start === 'number' && args.start >= 0) ? args.start : 0;
                 const chunkSize = (typeof args.length === 'number' && args.length > 0) ? args.length : 1122;
                 let offset = start;
 
-                // Iterate through text chunks using async generator
-                for await (const snippet of Utils.chunkText(fullText.slice(start), chunkSize)) {
-                    const hasMore = offset + snippet.length < fullText.length;
+                // Loop through content in fixed-size chunks until AI says to stop
+                while (true) {
+                    const snippet = fullText.slice(offset, offset + chunkSize);
+                    const hasMore = (offset + chunkSize) < totalLength;
                     const html = `<div class="tool-result" role="group" aria-label="Read content from ${args.url}"><strong>Read from:</strong> <a href="${args.url}" target="_blank" rel="noopener noreferrer">${args.url}</a><p>${Utils.escapeHtml(snippet)}${hasMore ? '...' : ''}</p></div>`;
                     UIController.addHtmlMessage('ai', html);
                     const plainTextSnippet = `Read content from ${args.url}:\n${snippet}${hasMore ? '...' : ''}`;
                     chatHistory.push({ role: 'assistant', content: plainTextSnippet });
                     debugLog(`[read_url] url=${args.url}, offset=${offset}, snippetLength=${snippet.length}, hasMore=${hasMore}`);
 
-                    // If more content remains, ask AI if it needs to continue
+                    // If no more content, break
                     if (!hasMore) break;
+
+                    // Ask AI if more content should be fetched
                     debugLog(`[read_url] Prompting AI for decision to fetch more (offset=${offset}, length=${chunkSize})`);
+                    const lastUser = chatHistory.filter(m => m.role === 'user').pop().content;
                     const decisionPrompt =
-                        `SNIPPET ONLY:\n${snippet}\n\nIf you need more text from this URL, reply ONLY with YES. If no more text is needed, reply ONLY with NO. NOTHING ELSE.`;
+                        `SNIPPET ONLY:\n${snippet}\n\n` +
+                        `If you need more text from this URL, reply ONLY with YES. ` +
+                        `If no more text is needed, reply ONLY with NO. NOTHING ELSE.`;
                     let shouldFetchMore = false;
                     try {
                         const selectedModel = SettingsController.getSettings().selectedModel;
                         if (selectedModel.startsWith('gpt')) {
+                            // OpenAI decision
                             const decisionRes = await ApiService.sendOpenAIRequest(selectedModel, [
                                 { role: 'system', content: 'You decide whether additional URL content is needed.' },
                                 { role: 'user', content: decisionPrompt }
                             ]);
-                            shouldFetchMore = decisionRes.choices[0].message.content.trim().toLowerCase().startsWith('yes');
+                            const decisionText = decisionRes.choices[0].message.content.trim().toLowerCase();
+                            debugLog(`[read_url] AI decision response (OpenAI): "${decisionText}"`);
+                            shouldFetchMore = decisionText.startsWith('yes');
                         } else {
+                            // Gemini/Gemma decision (minimal context)
                             const session = ApiService.createGeminiSession(selectedModel);
-                            const result = await session.sendMessage('', [{ role: 'user', content: decisionPrompt }]);
-                            const text = result.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || result.candidates?.[0]?.content?.text || '';
-                            shouldFetchMore = text.trim().toLowerCase().startsWith('yes');
+                            // Provide only the decision prompt, no full chat history
+                            const decisionContext = [ { role: 'user', content: decisionPrompt } ];
+                            const result = await session.sendMessage('', decisionContext);
+                            let decisionText = '';
+                            const candidate = result.candidates && result.candidates[0];
+                            if (candidate) {
+                                if (candidate.content.parts) {
+                                    decisionText = candidate.content.parts.map(p => p.text).join(' ');
+                                } else if (candidate.content.text) {
+                                    decisionText = candidate.content.text;
+                                }
+                            }
+                            decisionText = decisionText.trim().toLowerCase();
+                            debugLog(`[read_url] AI decision response (Gemini): "${decisionText}"`);
+                            shouldFetchMore = decisionText.startsWith('yes');
                         }
                     } catch (err) {
                         debugLog('Decision fetch error:', err);
                     }
                     if (!shouldFetchMore) break;
-                    offset += snippet.length;
+                    // Advance offset for next chunk
+                    offset += chunkSize;
                 }
             } else if (tool === 'instant_answer') {
                 UIController.showStatus(`Retrieving instant answer for "${args.query}"...`);
@@ -762,16 +762,15 @@ Answer: [your final, concise answer based on the reasoning above]`;
             UIController.clearStatus();
         }
         // Continue Chain-of-Thought with updated history for the active model, unless skipped
-        if (!skipContinue && toolCallCount <= MAX_TOOL_CALLS) {
+        if (!skipContinue) {
             try {
                 const selectedModel = SettingsController.getSettings().selectedModel;
                 // Reuse the last user message for continuation
                 const lastUserMsg = chatHistory.filter(m => m.role === 'user').pop()?.content || '';
                 const nextMsg = settings.enableCoT ? enhanceWithCoT(lastUserMsg) : lastUserMsg;
                 if (selectedModel.startsWith('gpt')) {
-                    // Continue Chain-of-Thought: push the enhanced user message and resend
-                    chatHistory.push({ role: 'user', content: nextMsg });
-                    await handleOpenAIMessage(selectedModel, nextMsg);
+                    // Continue Chain-of-Thought: use empty prompt to maintain system and history context
+                    await handleOpenAIMessage(selectedModel, '');
                 } else {
                     // Continue Gemini with enhanced user message
                     await handleGeminiMessage(selectedModel, nextMsg);
@@ -780,9 +779,6 @@ Answer: [your final, concise answer based on the reasoning above]`;
                 debugLog('Continuation error:', err);
                 // Preserve UI responsiveness; skip further reasoning on error
             }
-        } else {
-            debugLog('Max tool calls reached or skipContinue, skipping auto-continuation');
-            UIController.clearStatus();
         }
     }
 
