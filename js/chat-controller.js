@@ -656,7 +656,10 @@ Answer: [your final, concise answer based on the reasoning above]`;
                 // Ask AI if more content should be fetched
                 debugLog(`[read_url] Prompting AI for decision to fetch more (offset=${offset}, length=${chunkSize})`);
                 const lastUser = chatHistory.filter(m => m.role === 'user').pop().content;
-                const decisionPrompt = `User query: "${lastUser}"\nSnippet: "${snippet}"\n\nShould you fetch more content from this URL? Reply YES or NO.`;
+                const decisionPrompt =
+                    `SNIPPET ONLY:\n${snippet}\n\n` +
+                    `If you need more text from this URL, reply ONLY with YES. ` +
+                    `If no more text is needed, reply ONLY with NO. NOTHING ELSE.`;
                 let shouldFetchMore = false;
                 try {
                     const selectedModel = SettingsController.getSettings().selectedModel;
