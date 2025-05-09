@@ -17,6 +17,8 @@ const ChatController = (function() {
     let lastToolCall = null;
     let lastToolCallCount = 0;
     const MAX_TOOL_CALL_REPEAT = 3;
+    let lastSearchResults = [];
+    let autoReadInProgress = false;
 
     // Add helper to robustly extract JSON tool calls (handles markdown fences)
     function extractToolCall(text) {
@@ -65,6 +67,7 @@ Begin Reasoning Now:
                 }
                 const plainTextResults = results.map((r, i) => `${i+1}. ${r.title} (${r.url}) - ${r.snippet}`).join('\n');
                 chatHistory.push({ role: 'assistant', content: `Search results for "${args.query}" (${results.length}):\n${plainTextResults}` });
+                lastSearchResults = results;
                 // Prompt AI to suggest which results to read
                 await suggestResultsToRead(results, args.query);
             } catch (err) {
@@ -695,6 +698,30 @@ Answer: [your final, concise answer based on the reasoning above]`;
         return totalTokens;
     }
 
+    // Autonomous follow-up: after AI suggests which results to read, auto-read and summarize
+    async function autoReadAndSummarizeFromSuggestion(aiReply) {
+        if (autoReadInProgress) return; // Prevent overlap
+        if (!lastSearchResults || !Array.isArray(lastSearchResults) || !lastSearchResults.length) return;
+        // Parse numbers from AI reply (e.g., "3,5,7,9,10")
+        const match = aiReply.match(/([\d, ]+)/);
+        if (!match) return;
+        const nums = match[1].split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
+        if (!nums.length) return;
+        // Map numbers to URLs (1-based index)
+        const urlsToRead = nums.map(n => lastSearchResults[n-1]?.url).filter(Boolean);
+        if (!urlsToRead.length) return;
+        autoReadInProgress = true;
+        try {
+            for (const url of urlsToRead) {
+                await processToolCall({ tool: 'read_url', arguments: { url, start: 0, length: 1122 }, skipContinue: true });
+            }
+            // After all reads, auto-summarize
+            await summarizeSnippets();
+        } finally {
+            autoReadInProgress = false;
+        }
+    }
+
     // Suggestion logic: ask AI which results to read
     async function suggestResultsToRead(results, query) {
         if (!results || results.length === 0) return;
@@ -712,6 +739,8 @@ Answer: [your final, concise answer based on the reasoning above]`;
             // Optionally, parse and highlight suggested results
             if (aiReply) {
                 UIController.addMessage('ai', `AI suggests reading results: ${aiReply}`);
+                // Autonomous follow-up: auto-read and summarize
+                await autoReadAndSummarizeFromSuggestion(aiReply);
             }
         } catch (err) {
             // Ignore suggestion errors
