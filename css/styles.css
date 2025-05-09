@@ -440,7 +440,7 @@ html, body {
     transform: translateX(-50%);
     width: 100%;
     max-width: var(--max-width);
-    background: var(--container-bg);
+    background: linear-gradient(90deg, #eaf3ff 0%, #f5faff 100%);
     padding: var(--space-sm) var(--space-md);
     box-sizing: border-box;
     text-align: center;
@@ -450,6 +450,8 @@ html, body {
     border-bottom: 1px solid var(--border-color);
     z-index: 1000;
     visibility: hidden;
+    box-shadow: 0 2px 8px #007bff11;
+    transition: background 0.3s;
 }
 
 /* Tool result styling */
@@ -502,4 +504,31 @@ html, body {
   top: 0;
   left: 0;
   z-index: 2;
+}
+
+.spinner {
+  display: inline-block;
+  width: 1.2em;
+  height: 1.2em;
+  border: 3px solid var(--primary-color);
+  border-radius: 50%;
+  border-top-color: transparent;
+  animation: spin 0.8s linear infinite;
+  vertical-align: middle;
+  margin-right: 8px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Optionally, pulse the spinner for extra feedback */
+.spinner {
+  box-shadow: 0 0 0 0 rgba(0,123,255,0.3);
+  animation: spin 0.8s linear infinite, pulse 1.2s infinite cubic-bezier(.66,0,0,1);
+}
+@keyframes pulse {
+  0% { box-shadow: 0 0 0 0 rgba(0,123,255,0.3); }
+  70% { box-shadow: 0 0 0 8px rgba(0,123,255,0); }
+  100% { box-shadow: 0 0 0 0 rgba(0,123,255,0); }
 } 
