@@ -483,4 +483,23 @@ html, body {
 
 .tool-result a:hover {
     color: #0056b3;
+}
+
+.ai-suggested {
+  border: 2px solid #4f8cff;
+  background: #eaf3ff;
+  box-shadow: 0 0 8px #4f8cff33;
+  position: relative;
+}
+.ai-suggested::before {
+  content: "★ AI Suggests";
+  color: #fff;
+  background: #4f8cff;
+  font-size: 0.8em;
+  padding: 2px 8px;
+  border-radius: 0 0 8px 0;
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
 } 
